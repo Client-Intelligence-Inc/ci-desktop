@@ -142,7 +142,7 @@ function createWindow(): void {
     minWidth: 800,
     minHeight: 600,
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 12, y: 12 },
+    trafficLightPosition: { x: 12, y: 8 },
     show: false,
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
     webPreferences: {
