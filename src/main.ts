@@ -152,6 +152,43 @@ function createWindow(): void {
     },
   });
 
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.meta && input.type === 'keyDown') {
+      switch (input.key.toLowerCase()) {
+        case 'c':
+          mainWindow?.webContents.copy()
+          break
+        case 'x':
+          mainWindow?.webContents.cut()
+          break
+        case 'v':
+          mainWindow?.webContents.paste()
+          break
+        case 'a':
+          mainWindow?.webContents.selectAll()
+          break
+        case 'z':
+          if (input.shift) {
+            mainWindow?.webContents.redo()
+          } else {
+            mainWindow?.webContents.undo()
+          }
+          break
+      }
+    }
+  })
+
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const contextMenu = Menu.buildFromTemplate([
+      { role: 'cut', enabled: params.editFlags.canCut },
+      { role: 'copy', enabled: params.editFlags.canCopy },
+      { role: 'paste', enabled: params.editFlags.canPaste },
+      { type: 'separator' },
+      { role: 'selectAll' },
+    ])
+    contextMenu.popup()
+  })
+
   if (state.isMaximized) {
     mainWindow.maximize();
   }
