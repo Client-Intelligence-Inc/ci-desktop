@@ -1,0 +1,77 @@
+{
+  "name": "client-intelligence",
+  "productName": "Client Intelligence",
+  "version": "1.0.0",
+  "description": "Client Intelligence desktop app for macOS",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "npm run build && electron .",
+    "build": "tsc",
+    "dist": "npm run build && electron-builder --mac",
+    "dist:publish": "npm run build && electron-builder --mac --publish always",
+    "generate-icon": "node scripts/generate-icon.js"
+  },
+  "build": {
+    "appId": "ai.clientintelligence.desktop",
+    "productName": "Client Intelligence",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "build/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.business",
+      "icon": "build/icon.icns",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        }
+      ],
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": {
+        "teamId": "${APPLE_TEAM_ID}"
+      }
+    },
+    "dmg": {
+      "title": "Client Intelligence",
+      "iconSize": 128,
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "joshforti",
+      "repo": "ci-desktop"
+    }
+  },
+  "author": "Josh Forti",
+  "license": "PRIVATE",
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "canvas": "^3.2.3",
+    "electron": "^35.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.0"
+  }
+}
