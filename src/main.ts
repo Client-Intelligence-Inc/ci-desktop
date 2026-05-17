@@ -157,6 +157,23 @@ function createWindow(): void {
   }
 
   mainWindow.once('ready-to-show', () => {
+    mainWindow?.webContents.insertCSS(`
+      body::before {
+        content: '';
+        display: block;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 42px;
+        -webkit-app-region: drag;
+        z-index: 9999;
+        pointer-events: none;
+      }
+      button, a, input, select, textarea, [role="button"], [data-clickable] {
+        -webkit-app-region: no-drag;
+      }
+    `);
     mainWindow?.show();
   });
 
