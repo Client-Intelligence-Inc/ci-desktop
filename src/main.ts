@@ -216,11 +216,68 @@ function createWindow(): void {
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isInternalURL(url)) {
-      mainWindow?.loadURL(url);
-    } else {
-      shell.openExternal(url);
+      // Allow the popup — Electron creates a real child BrowserWindow.
+      // This is needed for OAuth flows that use window.open() → postMessage().
+      return {
+        action: 'allow',
+        overrideBrowserWindowOptions: {
+          width: 500,
+          height: 700,
+          autoHideMenuBar: true,
+          webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true,
+          },
+        },
+      };
     }
+    // External URL → system browser
+    shell.openExternal(url);
     return { action: 'deny' };
+  });
+
+  // Configure navigation rules for OAuth popup windows. The popup is created by
+  // setWindowOpenHandler above for internal URLs; it then navigates to external
+  // OAuth providers via server-side 302 redirects, and back to our domain.
+  mainWindow.webContents.on('did-create-window', (childWindow) => {
+    const allowedOAuthHosts = new Set([
+      'accounts.google.com',
+      'github.com',
+      'api.notion.com',
+      'notion.so',
+      'slack.com',
+      'zoom.us',
+      'login.microsoftonline.com',
+      'app.hubspot.com',
+    ]);
+
+    childWindow.webContents.on('will-navigate', (event, url) => {
+      try {
+        const parsed = new URL(url);
+        const isInternal = parsed.host === APP_HOST || parsed.host === `www.${APP_HOST}`;
+        const isAllowedOAuth =
+          allowedOAuthHosts.has(parsed.host) ||
+          [...allowedOAuthHosts].some((h) => parsed.host.endsWith(`.${h}`));
+
+        if (!isInternal && !isAllowedOAuth) {
+          event.preventDefault();
+          shell.openExternal(url);
+        }
+        // Internal and OAuth provider URLs navigate within the popup — this is the flow
+      } catch {
+        event.preventDefault();
+      }
+    });
+
+    // Also handle window.open() inside the popup (some OAuth flows do this)
+    childWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (isInternalURL(url)) {
+        childWindow.loadURL(url);
+      } else {
+        shell.openExternal(url);
+      }
+      return { action: 'deny' };
+    });
   });
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
