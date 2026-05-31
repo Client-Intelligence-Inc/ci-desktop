@@ -43,9 +43,10 @@ Generates `build/icon.png` and `build/icon.icns` from the programmatic icon scri
 | Variable | Description |
 |---|---|
 | `CSC_NAME` | Developer ID Application certificate name (or use `CSC_LINK` + `CSC_KEY_PASSWORD`) |
-| `APPLE_TEAM_ID` | Apple Developer Team ID |
-| `APPLE_ID` | Apple ID email for notarization |
-| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization |
+| `APPLE_KEYCHAIN_PROFILE` | Preferred notarization credential profile created with `xcrun notarytool store-credentials` |
+| `APPLE_TEAM_ID` | Apple Developer Team ID, needed for Apple ID password notarization |
+| `APPLE_ID` | Apple ID email for password-based notarization |
+| `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password fallback; omit when using `APPLE_KEYCHAIN_PROFILE` |
 
 ## Auto-Update
 

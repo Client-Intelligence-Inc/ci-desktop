@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "npm run build && electron .",
     "build": "tsc",
-    "dist": "set -a && source .env && set +a && npm run build && electron-builder --mac",
-    "dist:publish": "set -a && source .env && set +a && npm run build && electron-builder --mac --publish always",
+    "dist": "scripts/build-mac.sh",
+    "dist:publish": "scripts/build-mac.sh --publish always",
     "generate-icon": "node scripts/generate-icon.js"
   },
   "build": {
