@@ -7,13 +7,14 @@
   "scripts": {
     "dev": "npm run build && electron .",
     "build": "tsc",
-    "dist": "npm run build && electron-builder --mac",
-    "dist:publish": "npm run build && electron-builder --mac --publish always",
+    "dist": "set -a && source .env && set +a && npm run build && electron-builder --mac",
+    "dist:publish": "set -a && source .env && set +a && npm run build && electron-builder --mac --publish always",
     "generate-icon": "node scripts/generate-icon.js"
   },
   "build": {
     "appId": "ai.clientintelligence.desktop",
     "productName": "Client Intelligence",
+    "afterPack": "scripts/after-pack.js",
     "directories": {
       "output": "release"
     },
@@ -34,11 +35,15 @@
       ],
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
+      "extendInfo": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false,
+          "NSAllowsLocalNetworking": false
+        }
+      },
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": {
-        "teamId": "${APPLE_TEAM_ID}"
-      }
+      "notarize": true
     },
     "dmg": {
       "title": "Client Intelligence",
@@ -67,8 +72,8 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "canvas": "^3.2.3",
-    "electron": "^35.0.0",
-    "electron-builder": "^25.0.0",
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1",
     "typescript": "^5.7.0"
   },
   "dependencies": {

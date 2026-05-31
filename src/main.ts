@@ -4,6 +4,7 @@ import {
   Menu,
   shell,
   ipcMain,
+  session,
   MenuItemConstructorOptions,
 } from 'electron';
 import * as path from 'path';
@@ -12,6 +13,18 @@ import { initUpdater, checkForUpdates } from './updater';
 
 const APP_URL = 'https://clientintelligence.ai';
 const APP_HOST = 'clientintelligence.ai';
+const TRUSTED_PERMISSION_ORIGINS = new Set([APP_HOST, `www.${APP_HOST}`]);
+const TRUSTED_OAUTH_HOSTS = new Set([
+  'accounts.google.com',
+  'github.com',
+  'api.notion.com',
+  'notion.so',
+  'slack.com',
+  'zoom.us',
+  'login.microsoftonline.com',
+  'app.hubspot.com',
+]);
+const ALLOWED_APP_PERMISSIONS = new Set(['media', 'notifications']);
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
@@ -64,6 +77,40 @@ function isInternalURL(url: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isTrustedPermissionOrigin(url?: string): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && TRUSTED_PERMISSION_ORIGINS.has(parsed.host);
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedOAuthURL(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && (
+      TRUSTED_OAUTH_HOSTS.has(parsed.host) ||
+      [...TRUSTED_OAUTH_HOSTS].some((h) => parsed.host.endsWith(`.${h}`))
+    );
+  } catch {
+    return false;
+  }
+}
+
+function configureSessionSecurity(): void {
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestUrl = details.requestingUrl || webContents.getURL();
+    callback(ALLOWED_APP_PERMISSIONS.has(permission) && isTrustedPermissionOrigin(requestUrl));
+  });
+
+  session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+    const requestUrl = requestingOrigin || webContents?.getURL();
+    return ALLOWED_APP_PERMISSIONS.has(permission) && isTrustedPermissionOrigin(requestUrl);
+  });
 }
 
 function createMenu(): void {
@@ -148,6 +195,8 @@ function createWindow(): void {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
@@ -227,6 +276,8 @@ function createWindow(): void {
           webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
+            sandbox: true,
+            webSecurity: true,
           },
         },
       };
@@ -240,26 +291,12 @@ function createWindow(): void {
   // setWindowOpenHandler above for internal URLs; it then navigates to external
   // OAuth providers via server-side 302 redirects, and back to our domain.
   mainWindow.webContents.on('did-create-window', (childWindow) => {
-    const allowedOAuthHosts = new Set([
-      'accounts.google.com',
-      'github.com',
-      'api.notion.com',
-      'notion.so',
-      'slack.com',
-      'zoom.us',
-      'login.microsoftonline.com',
-      'app.hubspot.com',
-    ]);
-
     childWindow.webContents.on('will-navigate', (event, url) => {
       try {
         const parsed = new URL(url);
         const isInternal = parsed.host === APP_HOST || parsed.host === `www.${APP_HOST}`;
-        const isAllowedOAuth =
-          allowedOAuthHosts.has(parsed.host) ||
-          [...allowedOAuthHosts].some((h) => parsed.host.endsWith(`.${h}`));
 
-        if (!isInternal && !isAllowedOAuth) {
+        if (!isInternal && !isTrustedOAuthURL(url)) {
           event.preventDefault();
           shell.openExternal(url);
         }
@@ -312,6 +349,7 @@ ipcMain.on('get-app-version', (event) => {
 });
 
 app.on('ready', () => {
+  configureSessionSecurity();
   createMenu();
   createWindow();
   initUpdater();
