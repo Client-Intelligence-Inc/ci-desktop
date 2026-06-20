@@ -55,20 +55,15 @@ let lastNotifiedActiveJobCount: number | undefined;
 const NAVIGATION_CONTROLS_CSS = `
   #ci-desktop-navigation-controls {
     align-items: center;
-    background: color-mix(in srgb, Canvas 78%, transparent);
-    border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
-    border-radius: 7px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
     display: flex;
-    gap: 2px;
-    height: 28px;
-    left: 76px;
-    padding: 2px;
+    gap: 9px;
+    height: 30px;
+    left: 88px;
+    padding: 0;
     position: fixed;
-    top: 7px;
+    top: 4px;
     z-index: 2147483647;
     -webkit-app-region: no-drag;
-    backdrop-filter: blur(18px);
   }
 
   #ci-desktop-navigation-controls button {
@@ -76,11 +71,11 @@ const NAVIGATION_CONTROLS_CSS = `
     appearance: none;
     background: transparent;
     border: 0;
-    border-radius: 5px;
-    color: color-mix(in srgb, CanvasText 76%, transparent);
+    border-radius: 4px;
+    color: rgba(156, 163, 175, 0.76);
     cursor: default;
     display: inline-flex;
-    height: 24px;
+    height: 30px;
     justify-content: center;
     margin: 0;
     padding: 0;
@@ -89,22 +84,26 @@ const NAVIGATION_CONTROLS_CSS = `
   }
 
   #ci-desktop-navigation-controls button:not(:disabled):hover {
-    background: color-mix(in srgb, CanvasText 9%, transparent);
-    color: CanvasText;
+    background: color-mix(in srgb, CanvasText 7%, transparent);
+    color: rgba(229, 231, 235, 0.92);
   }
 
   #ci-desktop-navigation-controls button:not(:disabled):active {
-    background: color-mix(in srgb, CanvasText 14%, transparent);
+    background: color-mix(in srgb, CanvasText 11%, transparent);
   }
 
   #ci-desktop-navigation-controls button:disabled {
-    color: color-mix(in srgb, CanvasText 25%, transparent);
+    color: rgba(156, 163, 175, 0.32);
   }
 
   #ci-desktop-navigation-controls svg {
-    height: 15px;
+    height: 18px;
     pointer-events: none;
-    width: 15px;
+    width: 18px;
+  }
+
+  .ci-desktop-hidden-window-brand {
+    display: none !important;
   }
 `;
 
@@ -160,7 +159,24 @@ const NAVIGATION_CONTROLS_SCRIPT = `
     forward.disabled = !state || !state.canGoForward;
   }
 
+  function hideWindowBrandLabel() {
+    const candidates = Array.from(document.body.querySelectorAll('a, div, span, p, header *'));
+    for (const element of candidates) {
+      const text = (element.textContent || '').replace(/\\s+/g, ' ').trim();
+      if (text !== 'Client Intelligence') continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.top >= 0 && rect.top < 62 && rect.left >= 0 && rect.left < 260) {
+        element.classList.add('ci-desktop-hidden-window-brand');
+      }
+    }
+  }
+
   attach();
+  hideWindowBrandLabel();
+  new MutationObserver(hideWindowBrandLabel).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
   void navigation.getState().then(update).catch(() => update(null));
   navigation.onStateChange(update);
 })();
