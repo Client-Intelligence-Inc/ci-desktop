@@ -526,18 +526,23 @@ function createWindow(): void {
     if (input.meta && input.type === 'keyDown') {
       switch (input.key.toLowerCase()) {
         case 'c':
+          event.preventDefault()
           mainWindow?.webContents.copy()
           break
         case 'x':
+          event.preventDefault()
           mainWindow?.webContents.cut()
           break
         case 'v':
+          event.preventDefault()
           mainWindow?.webContents.paste()
           break
         case 'a':
+          event.preventDefault()
           mainWindow?.webContents.selectAll()
           break
         case 'z':
+          event.preventDefault()
           if (input.shift) {
             mainWindow?.webContents.redo()
           } else {
