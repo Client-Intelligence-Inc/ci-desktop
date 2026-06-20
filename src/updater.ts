@@ -1,9 +1,14 @@
 import { autoUpdater } from 'electron-updater';
-import { Notification, dialog } from 'electron';
+import { Notification, app } from 'electron';
 
 let updateCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 export function initUpdater(): void {
+  if (process.env.CI_DESKTOP_DISABLE_UPDATES === '1' || !app.isInApplicationsFolder()) {
+    console.log('Auto-updater disabled for local desktop build.');
+    return;
+  }
+
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 

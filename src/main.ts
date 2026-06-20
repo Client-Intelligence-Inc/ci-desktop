@@ -2,18 +2,34 @@ import {
   app,
   BrowserWindow,
   Menu,
+  nativeImage,
   shell,
   ipcMain,
   session,
   MenuItemConstructorOptions,
+  Tray,
+  Notification,
 } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { initUpdater, checkForUpdates } from './updater';
+import { initAgentIpc } from './agent/ipc';
+import { DesktopAgentService } from './agent/service';
+import {
+  getURLHost,
+  isLocalDevOrigin,
+  isTrustedAppURL,
+  parseTrustedHosts,
+} from './agent/origin';
 
-const APP_URL = 'https://clientintelligence.ai';
-const APP_HOST = 'clientintelligence.ai';
-const TRUSTED_PERMISSION_ORIGINS = new Set([APP_HOST, `www.${APP_HOST}`]);
+const DEFAULT_APP_URL = 'https://clientintelligence.ai';
+const APP_URL = process.env.CI_DESKTOP_APP_URL || DEFAULT_APP_URL;
+const APP_HOST = getURLHost(APP_URL) || 'clientintelligence.ai';
+const TRUSTED_APP_HOSTS = new Set([
+  APP_HOST,
+  `www.${APP_HOST}`,
+  ...parseTrustedHosts(process.env.CI_DESKTOP_TRUSTED_HOSTS),
+]);
 const TRUSTED_OAUTH_HOSTS = new Set([
   'accounts.google.com',
   'github.com',
@@ -32,6 +48,9 @@ if (!gotSingleInstanceLock) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let desktopAgent: DesktopAgentService | null = null;
+let agentTray: Tray | null = null;
+let lastNotifiedActiveJobCount: number | undefined;
 
 interface WindowState {
   width: number;
@@ -71,22 +90,11 @@ function saveWindowState(win: BrowserWindow): void {
 }
 
 function isInternalURL(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.host === APP_HOST || parsed.host === `www.${APP_HOST}`;
-  } catch {
-    return false;
-  }
+  return isTrustedAppURL(url, TRUSTED_APP_HOSTS);
 }
 
 function isTrustedPermissionOrigin(url?: string): boolean {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'https:' && TRUSTED_PERMISSION_ORIGINS.has(parsed.host);
-  } catch {
-    return false;
-  }
+  return Boolean(url && isTrustedAppURL(url, TRUSTED_APP_HOSTS));
 }
 
 function isTrustedOAuthURL(url: string): boolean {
@@ -172,10 +180,170 @@ function createMenu(): void {
         { role: 'front' },
       ],
     },
+    {
+      label: 'Desktop Agent',
+      submenu: [
+        {
+          label: 'Connect Agent',
+          click: () => desktopAgent?.connect(),
+        },
+        {
+          label: 'Kill Switch: Disconnect Agent',
+          click: () => desktopAgent?.disconnect(),
+        },
+        {
+          label: 'Revoke This Device',
+          click: () => {
+            void desktopAgent?.revokePersonalDevice();
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Open Full Disk Access Settings',
+          click: () => desktopAgent?.openPermissionSettings('full_disk_access'),
+        },
+        {
+          label: 'Open Accessibility Settings',
+          click: () => desktopAgent?.openPermissionSettings('accessibility'),
+        },
+        {
+          label: 'Open Screen Recording Settings',
+          click: () => desktopAgent?.openPermissionSettings('screen_recording'),
+        },
+        {
+          label: 'Open Automation Settings',
+          click: () => desktopAgent?.openPermissionSettings('automation'),
+        },
+      ],
+    },
   ];
 
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
+}
+
+function createAgentTray(): void {
+  const iconPath = path.join(__dirname, '..', 'build', 'icon.png');
+  const icon = nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 });
+  icon.setTemplateImage(true);
+
+  agentTray = new Tray(icon);
+  agentTray.setToolTip('Client Intelligence Desktop Agent');
+  agentTray.on('click', () => {
+    if (!mainWindow) {
+      createWindow();
+      return;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  desktopAgent?.onStatusChange(() => {
+    void updateAgentTray();
+  });
+  void updateAgentTray();
+}
+
+async function updateAgentTray(): Promise<void> {
+  if (!agentTray || !desktopAgent) return;
+
+  const status = await desktopAgent.getStatus();
+  const activeJobs = status.activeJobIds.length;
+  const connectionLabel = status.enabled ? status.connection : 'disabled';
+  const activeTool = status.activeJobs[0]?.tool;
+  const detail = activeJobs === 1
+    ? `1 active job${activeTool ? `: ${activeTool}` : ''}`
+    : `${activeJobs} active jobs`;
+  notifyRemoteControlState(activeJobs);
+
+  agentTray.setToolTip(`Client Intelligence Desktop Agent: ${connectionLabel}; ${detail}`);
+  agentTray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: `Agent: ${connectionLabel}`,
+      enabled: false,
+    },
+    {
+      label: detail,
+      enabled: false,
+    },
+    {
+      label: activeJobs > 0 ? 'Remote control active' : 'Remote control idle',
+      enabled: false,
+    },
+    { type: 'separator' },
+    {
+      label: 'Show Client Intelligence',
+      click: () => {
+        if (!mainWindow) {
+          createWindow();
+          return;
+        }
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      },
+    },
+    {
+      label: status.enabled ? 'Kill Switch: Disconnect Agent' : 'Connect Agent',
+      click: () => {
+        if (status.enabled) {
+          desktopAgent?.disconnect();
+        } else {
+          desktopAgent?.connect();
+        }
+      },
+    },
+    {
+      label: 'Revoke This Device',
+      enabled: Boolean(status.deviceId),
+      click: () => {
+        void desktopAgent?.revokePersonalDevice();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Open Full Disk Access Settings',
+      click: () => desktopAgent?.openPermissionSettings('full_disk_access'),
+    },
+    {
+      label: 'Open Accessibility Settings',
+      click: () => desktopAgent?.openPermissionSettings('accessibility'),
+    },
+    {
+      label: 'Open Screen Recording Settings',
+      click: () => desktopAgent?.openPermissionSettings('screen_recording'),
+    },
+    {
+      label: 'Open Automation Settings',
+      click: () => desktopAgent?.openPermissionSettings('automation'),
+    },
+  ]));
+}
+
+function notifyRemoteControlState(activeJobs: number): void {
+  if (lastNotifiedActiveJobCount === undefined) {
+    lastNotifiedActiveJobCount = activeJobs;
+    return;
+  }
+
+  const wasActive = lastNotifiedActiveJobCount > 0;
+  const isActive = activeJobs > 0;
+  lastNotifiedActiveJobCount = activeJobs;
+
+  if (wasActive === isActive || !Notification.isSupported()) return;
+
+  const notification = new Notification({
+    title: isActive
+      ? 'Client Intelligence remote control active'
+      : 'Client Intelligence remote control idle',
+    body: isActive
+      ? `${activeJobs} remote desktop job${activeJobs === 1 ? '' : 's'} running. Use the tray kill switch to stop control.`
+      : 'No remote desktop jobs are running.',
+    silent: false,
+  });
+
+  notification.show();
 }
 
 function createWindow(): void {
@@ -293,8 +461,7 @@ function createWindow(): void {
   mainWindow.webContents.on('did-create-window', (childWindow) => {
     childWindow.webContents.on('will-navigate', (event, url) => {
       try {
-        const parsed = new URL(url);
-        const isInternal = parsed.host === APP_HOST || parsed.host === `www.${APP_HOST}`;
+        const isInternal = isInternalURL(url);
 
         if (!isInternal && !isTrustedOAuthURL(url)) {
           event.preventDefault();
@@ -349,8 +516,12 @@ ipcMain.on('get-app-version', (event) => {
 });
 
 app.on('ready', () => {
+  desktopAgent = new DesktopAgentService();
+  initAgentIpc(desktopAgent, isTrustedPermissionOrigin);
+  desktopAgent.start();
   configureSessionSecurity();
   createMenu();
+  createAgentTray();
   createWindow();
   initUpdater();
 });
