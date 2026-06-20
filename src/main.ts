@@ -2,18 +2,34 @@ import {
   app,
   BrowserWindow,
   Menu,
+  nativeImage,
   shell,
   ipcMain,
   session,
   MenuItemConstructorOptions,
+  Tray,
+  Notification,
 } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { initUpdater, checkForUpdates } from './updater';
+import { initAgentIpc } from './agent/ipc';
+import { DesktopAgentService } from './agent/service';
+import {
+  getURLHost,
+  isLocalDevOrigin,
+  isTrustedAppURL,
+  parseTrustedHosts,
+} from './agent/origin';
 
-const APP_URL = 'https://clientintelligence.ai';
-const APP_HOST = 'clientintelligence.ai';
-const TRUSTED_PERMISSION_ORIGINS = new Set([APP_HOST, `www.${APP_HOST}`]);
+const DEFAULT_APP_URL = 'https://clientintelligence.ai';
+const APP_URL = process.env.CI_DESKTOP_APP_URL || DEFAULT_APP_URL;
+const APP_HOST = getURLHost(APP_URL) || 'clientintelligence.ai';
+const TRUSTED_APP_HOSTS = new Set([
+  APP_HOST,
+  `www.${APP_HOST}`,
+  ...parseTrustedHosts(process.env.CI_DESKTOP_TRUSTED_HOSTS),
+]);
 const TRUSTED_OAUTH_HOSTS = new Set([
   'accounts.google.com',
   'github.com',
@@ -32,6 +48,139 @@ if (!gotSingleInstanceLock) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let desktopAgent: DesktopAgentService | null = null;
+let agentTray: Tray | null = null;
+let lastNotifiedActiveJobCount: number | undefined;
+
+const NAVIGATION_CONTROLS_CSS = `
+  #ci-desktop-navigation-controls {
+    align-items: center;
+    display: flex;
+    gap: 9px;
+    height: 30px;
+    left: 88px;
+    padding: 0;
+    position: fixed;
+    top: 4px;
+    z-index: 2147483647;
+    -webkit-app-region: no-drag;
+  }
+
+  #ci-desktop-navigation-controls button {
+    align-items: center;
+    appearance: none;
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    color: rgba(156, 163, 175, 0.76);
+    cursor: default;
+    display: inline-flex;
+    height: 30px;
+    justify-content: center;
+    margin: 0;
+    padding: 0;
+    width: 26px;
+    -webkit-app-region: no-drag;
+  }
+
+  #ci-desktop-navigation-controls button:not(:disabled):hover {
+    background: color-mix(in srgb, CanvasText 7%, transparent);
+    color: rgba(229, 231, 235, 0.92);
+  }
+
+  #ci-desktop-navigation-controls button:not(:disabled):active {
+    background: color-mix(in srgb, CanvasText 11%, transparent);
+  }
+
+  #ci-desktop-navigation-controls button:disabled {
+    color: rgba(156, 163, 175, 0.32);
+  }
+
+  #ci-desktop-navigation-controls svg {
+    height: 18px;
+    pointer-events: none;
+    width: 18px;
+  }
+
+  .ci-desktop-hidden-window-brand {
+    display: none !important;
+  }
+`;
+
+const NAVIGATION_CONTROLS_SCRIPT = `
+(() => {
+  if (window.__clientIntelligenceDesktopNavigationControlsInstalled) return;
+  const desktopApi = window.clientIntelligenceDesktop || window.electronAPI;
+  const navigation = desktopApi && desktopApi.navigation;
+  if (!navigation) return;
+
+  window.__clientIntelligenceDesktopNavigationControlsInstalled = true;
+
+  const root = document.createElement('div');
+  root.id = 'ci-desktop-navigation-controls';
+  root.setAttribute('aria-label', 'Desktop browser navigation');
+
+  const icons = {
+    back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    forward: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    reload: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.4 10A7 7 0 0 0 6.3 7.8L4 11m16 2-2.3 3.2A7 7 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  };
+
+  function makeButton(name, label, onClick) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.navigationButton = name;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.innerHTML = icons[name];
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void onClick();
+    });
+    return button;
+  }
+
+  const back = makeButton('back', 'Back', () => navigation.back());
+  const forward = makeButton('forward', 'Forward', () => navigation.forward());
+  const reload = makeButton('reload', 'Refresh', () => navigation.reload());
+  root.append(back, forward, reload);
+
+  function attach() {
+    if (!document.body) {
+      window.requestAnimationFrame(attach);
+      return;
+    }
+    if (!root.isConnected) document.body.appendChild(root);
+  }
+
+  function update(state) {
+    back.disabled = !state || !state.canGoBack;
+    forward.disabled = !state || !state.canGoForward;
+  }
+
+  function hideWindowBrandLabel() {
+    const candidates = Array.from(document.body.querySelectorAll('a, div, span, p, header *'));
+    for (const element of candidates) {
+      const text = (element.textContent || '').replace(/\\s+/g, ' ').trim();
+      if (text !== 'Client Intelligence') continue;
+      const rect = element.getBoundingClientRect();
+      if (rect.top >= 0 && rect.top < 62 && rect.left >= 0 && rect.left < 260) {
+        element.classList.add('ci-desktop-hidden-window-brand');
+      }
+    }
+  }
+
+  attach();
+  hideWindowBrandLabel();
+  new MutationObserver(hideWindowBrandLabel).observe(document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+  void navigation.getState().then(update).catch(() => update(null));
+  navigation.onStateChange(update);
+})();
+`;
 
 interface WindowState {
   width: number;
@@ -70,23 +219,35 @@ function saveWindowState(win: BrowserWindow): void {
   }
 }
 
-function isInternalURL(url: string): boolean {
+function getNavigationState(win = mainWindow): { canGoBack: boolean; canGoForward: boolean } {
+  return {
+    canGoBack: Boolean(win?.webContents.canGoBack()),
+    canGoForward: Boolean(win?.webContents.canGoForward()),
+  };
+}
+
+function sendNavigationState(win = mainWindow): void {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send('navigation:state', getNavigationState(win));
+}
+
+async function installNavigationControls(win: BrowserWindow): Promise<void> {
+  if (win.isDestroyed()) return;
   try {
-    const parsed = new URL(url);
-    return parsed.host === APP_HOST || parsed.host === `www.${APP_HOST}`;
+    await win.webContents.insertCSS(NAVIGATION_CONTROLS_CSS);
+    await win.webContents.executeJavaScript(NAVIGATION_CONTROLS_SCRIPT);
+    sendNavigationState(win);
   } catch {
-    return false;
+    // The remote page may be navigating; the next did-finish-load will retry.
   }
 }
 
+function isInternalURL(url: string): boolean {
+  return isTrustedAppURL(url, TRUSTED_APP_HOSTS);
+}
+
 function isTrustedPermissionOrigin(url?: string): boolean {
-  if (!url) return false;
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === 'https:' && TRUSTED_PERMISSION_ORIGINS.has(parsed.host);
-  } catch {
-    return false;
-  }
+  return Boolean(url && isTrustedAppURL(url, TRUSTED_APP_HOSTS));
 }
 
 function isTrustedOAuthURL(url: string): boolean {
@@ -172,10 +333,170 @@ function createMenu(): void {
         { role: 'front' },
       ],
     },
+    {
+      label: 'Desktop Agent',
+      submenu: [
+        {
+          label: 'Connect Agent',
+          click: () => desktopAgent?.connect(),
+        },
+        {
+          label: 'Kill Switch: Disconnect Agent',
+          click: () => desktopAgent?.disconnect(),
+        },
+        {
+          label: 'Revoke This Device',
+          click: () => {
+            void desktopAgent?.revokePersonalDevice();
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Open Full Disk Access Settings',
+          click: () => desktopAgent?.openPermissionSettings('full_disk_access'),
+        },
+        {
+          label: 'Open Accessibility Settings',
+          click: () => desktopAgent?.openPermissionSettings('accessibility'),
+        },
+        {
+          label: 'Open Screen Recording Settings',
+          click: () => desktopAgent?.openPermissionSettings('screen_recording'),
+        },
+        {
+          label: 'Open Automation Settings',
+          click: () => desktopAgent?.openPermissionSettings('automation'),
+        },
+      ],
+    },
   ];
 
   const menu = Menu.buildFromTemplate(template);
   Menu.setApplicationMenu(menu);
+}
+
+function createAgentTray(): void {
+  const iconPath = path.join(__dirname, '..', 'build', 'icon.png');
+  const icon = nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 });
+  icon.setTemplateImage(true);
+
+  agentTray = new Tray(icon);
+  agentTray.setToolTip('Client Intelligence Desktop Agent');
+  agentTray.on('click', () => {
+    if (!mainWindow) {
+      createWindow();
+      return;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  });
+
+  desktopAgent?.onStatusChange(() => {
+    void updateAgentTray();
+  });
+  void updateAgentTray();
+}
+
+async function updateAgentTray(): Promise<void> {
+  if (!agentTray || !desktopAgent) return;
+
+  const status = await desktopAgent.getStatus();
+  const activeJobs = status.activeJobIds.length;
+  const connectionLabel = status.enabled ? status.connection : 'disabled';
+  const activeTool = status.activeJobs[0]?.tool;
+  const detail = activeJobs === 1
+    ? `1 active job${activeTool ? `: ${activeTool}` : ''}`
+    : `${activeJobs} active jobs`;
+  notifyRemoteControlState(activeJobs);
+
+  agentTray.setToolTip(`Client Intelligence Desktop Agent: ${connectionLabel}; ${detail}`);
+  agentTray.setContextMenu(Menu.buildFromTemplate([
+    {
+      label: `Agent: ${connectionLabel}`,
+      enabled: false,
+    },
+    {
+      label: detail,
+      enabled: false,
+    },
+    {
+      label: activeJobs > 0 ? 'Remote control active' : 'Remote control idle',
+      enabled: false,
+    },
+    { type: 'separator' },
+    {
+      label: 'Show Client Intelligence',
+      click: () => {
+        if (!mainWindow) {
+          createWindow();
+          return;
+        }
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      },
+    },
+    {
+      label: status.enabled ? 'Kill Switch: Disconnect Agent' : 'Connect Agent',
+      click: () => {
+        if (status.enabled) {
+          desktopAgent?.disconnect();
+        } else {
+          desktopAgent?.connect();
+        }
+      },
+    },
+    {
+      label: 'Revoke This Device',
+      enabled: Boolean(status.deviceId),
+      click: () => {
+        void desktopAgent?.revokePersonalDevice();
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Open Full Disk Access Settings',
+      click: () => desktopAgent?.openPermissionSettings('full_disk_access'),
+    },
+    {
+      label: 'Open Accessibility Settings',
+      click: () => desktopAgent?.openPermissionSettings('accessibility'),
+    },
+    {
+      label: 'Open Screen Recording Settings',
+      click: () => desktopAgent?.openPermissionSettings('screen_recording'),
+    },
+    {
+      label: 'Open Automation Settings',
+      click: () => desktopAgent?.openPermissionSettings('automation'),
+    },
+  ]));
+}
+
+function notifyRemoteControlState(activeJobs: number): void {
+  if (lastNotifiedActiveJobCount === undefined) {
+    lastNotifiedActiveJobCount = activeJobs;
+    return;
+  }
+
+  const wasActive = lastNotifiedActiveJobCount > 0;
+  const isActive = activeJobs > 0;
+  lastNotifiedActiveJobCount = activeJobs;
+
+  if (wasActive === isActive || !Notification.isSupported()) return;
+
+  const notification = new Notification({
+    title: isActive
+      ? 'Client Intelligence remote control active'
+      : 'Client Intelligence remote control idle',
+    body: isActive
+      ? `${activeJobs} remote desktop job${activeJobs === 1 ? '' : 's'} running. Use the tray kill switch to stop control.`
+      : 'No remote desktop jobs are running.',
+    silent: false,
+  });
+
+  notification.show();
 }
 
 function createWindow(): void {
@@ -205,18 +526,23 @@ function createWindow(): void {
     if (input.meta && input.type === 'keyDown') {
       switch (input.key.toLowerCase()) {
         case 'c':
+          event.preventDefault()
           mainWindow?.webContents.copy()
           break
         case 'x':
+          event.preventDefault()
           mainWindow?.webContents.cut()
           break
         case 'v':
+          event.preventDefault()
           mainWindow?.webContents.paste()
           break
         case 'a':
+          event.preventDefault()
           mainWindow?.webContents.selectAll()
           break
         case 'z':
+          event.preventDefault()
           if (input.shift) {
             mainWindow?.webContents.redo()
           } else {
@@ -237,6 +563,22 @@ function createWindow(): void {
     ])
     contextMenu.popup()
   })
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    void installNavigationControls(mainWindow as BrowserWindow);
+  });
+
+  mainWindow.webContents.on('did-navigate', () => {
+    sendNavigationState();
+  });
+
+  mainWindow.webContents.on('did-navigate-in-page', () => {
+    sendNavigationState();
+  });
+
+  mainWindow.webContents.on('did-start-navigation', () => {
+    sendNavigationState();
+  });
 
   if (state.isMaximized) {
     mainWindow.maximize();
@@ -260,6 +602,7 @@ function createWindow(): void {
         -webkit-app-region: no-drag;
       }
     `);
+    void installNavigationControls(mainWindow as BrowserWindow);
     mainWindow?.show();
   });
 
@@ -293,8 +636,7 @@ function createWindow(): void {
   mainWindow.webContents.on('did-create-window', (childWindow) => {
     childWindow.webContents.on('will-navigate', (event, url) => {
       try {
-        const parsed = new URL(url);
-        const isInternal = parsed.host === APP_HOST || parsed.host === `www.${APP_HOST}`;
+        const isInternal = isInternalURL(url);
 
         if (!isInternal && !isTrustedOAuthURL(url)) {
           event.preventDefault();
@@ -348,9 +690,37 @@ ipcMain.on('get-app-version', (event) => {
   event.returnValue = app.getVersion();
 });
 
+ipcMain.handle('navigation:back', () => {
+  if (mainWindow?.webContents.canGoBack()) {
+    mainWindow.webContents.goBack();
+  }
+  sendNavigationState();
+  return getNavigationState();
+});
+
+ipcMain.handle('navigation:forward', () => {
+  if (mainWindow?.webContents.canGoForward()) {
+    mainWindow.webContents.goForward();
+  }
+  sendNavigationState();
+  return getNavigationState();
+});
+
+ipcMain.handle('navigation:reload', () => {
+  mainWindow?.webContents.reload();
+  sendNavigationState();
+  return getNavigationState();
+});
+
+ipcMain.handle('navigation:get-state', () => getNavigationState());
+
 app.on('ready', () => {
+  desktopAgent = new DesktopAgentService();
+  initAgentIpc(desktopAgent, isTrustedPermissionOrigin);
+  desktopAgent.start();
   configureSessionSecurity();
   createMenu();
+  createAgentTray();
   createWindow();
   initUpdater();
 });

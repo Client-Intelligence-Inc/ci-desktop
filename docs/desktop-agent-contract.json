@@ -1,0 +1,2709 @@
+{
+  "protocolVersion": 1,
+  "package": {
+    "name": "client-intelligence",
+    "productName": "Client Intelligence",
+    "version": "1.0.0",
+    "appId": "ai.clientintelligence.desktop"
+  },
+  "ownerScope": {
+    "personalOnly": true,
+    "ownerUserIdRequiredForScopedApis": true,
+    "ownerUserIdRequiredForJobStart": true,
+    "desktopRejectsOwnerlessJobsWhenPaired": true,
+    "mockGatewayAllowedOwnerEnv": "CI_DESKTOP_AGENT_ALLOWED_OWNER_USER_ID",
+    "deviceTargeting": true,
+    "mockGatewayStrictDeviceTargetEnv": "CI_DESKTOP_AGENT_REQUIRE_TARGET_DEVICE",
+    "strictDeviceTargetBehavior": "When enabled, owner-scoped job creation may auto-route only if the owner has one non-revoked device. If multiple devices are available, callers must specify deviceId."
+  },
+  "pairing": {
+    "failClosedByDefault": true,
+    "offlineFallbackEnv": "CI_DESKTOP_AGENT_ALLOW_OFFLINE_PAIRING",
+    "keychainPersistenceRequired": true,
+    "trustedBridgeInput": [
+      "ownerUserId",
+      "pairingToken"
+    ],
+    "sessionProof": "pairingToken is an optional short-lived proof from the signed-in Client Intelligence web session. The desktop sends it as Authorization: Bearer <pairingToken> to POST /api/desktop/devices/pair and does not serialize it into the JSON body or persist it.",
+    "capabilitySync": "The desktop sends { capabilities: { tools: getCapabilityManifest() } } in the pairing JSON body and refreshes capability names/manifests on heartbeat so backend device records can advertise the exact local tool surface after app updates.",
+    "mockGatewayPairingTokenEnv": "CI_DESKTOP_AGENT_REQUIRE_PAIRING_TOKEN",
+    "behavior": "The desktop must not mark itself paired unless the gateway returns deviceId, ownerUserId, and deviceToken and the token is saved to macOS Keychain. Local self-issued device tokens are allowed only when CI_DESKTOP_AGENT_ALLOW_OFFLINE_PAIRING=1 for non-production verification. If Keychain persistence fails after gateway pairing, the desktop attempts to revoke the issued token and leaves local paired identity unset."
+  },
+  "desktopBridge": {
+    "global": "window.clientIntelligenceDesktop.agent",
+    "trustedOriginPolicy": {
+      "production": [
+        "https://clientintelligence.ai",
+        "https://www.clientintelligence.ai"
+      ],
+      "localDevelopment": [
+        "http://localhost:<port>",
+        "http://127.0.0.1:<port>",
+        "http://[::1]:<port>"
+      ],
+      "behavior": "Desktop bridge, app navigation, and permission requests trust only HTTPS configured app hosts or explicitly configured loopback local-development hosts. Plain HTTP production URLs, file URLs, JavaScript URLs, and lookalike hosts are rejected."
+    },
+    "gatewayUrlPolicy": {
+      "production": "wss:// WebSocket or https:// HTTP polling",
+      "localDevelopment": [
+        "ws://localhost:<port>",
+        "ws://127.0.0.1:<port>",
+        "ws://[::1]:<port>",
+        "http://localhost:<port>",
+        "http://127.0.0.1:<port>",
+        "http://[::1]:<port>"
+      ],
+      "behavior": "Trusted settings updates may set secure wss/https gateway URLs or loopback ws/http local-development URLs. Plain ws/http production gateways and file/javascript URLs are rejected."
+    },
+    "localToolPolicy": {
+      "method": "runLocalTool",
+      "behavior": "The trusted bridge may run non-approval diagnostic/setup capabilities locally. Capabilities whose manifest requiresApproval is true are denied and audited; they must be sent as desktop jobs so the normal approval prompt path can run."
+    },
+    "settingsPatchPolicy": {
+      "behavior": "Trusted bridge updateSettings may change local preferences, but cannot set paired deviceId, paired ownerUserId, deviceApprovalGrants, or add allowedFolders. Pairing/revoke owns identity, explicit approval prompts own persistent approval grants, and folder expansion must go through chooseAllowedFolder so macOS presents the native picker."
+    },
+    "permissionShortcutPolicy": {
+      "method": "openPermissionSettings",
+      "allowed": [
+        "full_disk_access",
+        "accessibility",
+        "screen_recording",
+        "automation"
+      ],
+      "behavior": "Trusted bridge permission shortcuts reject unknown permission names before opening native System Settings URLs."
+    },
+    "methods": [
+      "getStatus",
+      "getCapabilities",
+      "getSetupChecklist",
+      "connect",
+      "disconnect",
+      "pairPersonalDevice",
+      "revokePersonalDevice",
+      "updateSettings",
+      "chooseAllowedFolder",
+      "removeAllowedFolder",
+      "clearAllowedFolders",
+      "openPermissionSettings",
+      "runLocalTool",
+      "getAudit",
+      "getAuditInfo",
+      "clearAudit"
+    ],
+    "statusFields": [
+      "connection",
+      "enabled",
+      "launchAtLogin",
+      "deviceId",
+      "displayName",
+      "gatewayUrl",
+      "ownerUserId",
+      "fileAccessMode",
+      "allowedFolders",
+      "controlMode",
+      "approvalMode",
+      "allowShell",
+      "permissions",
+      "lastError",
+      "lastConnectedAt",
+      "lastHeartbeatAt",
+      "reconnectAttempt",
+      "nextReconnectAt",
+      "nextReconnectDelayMs",
+      "activeJobIds",
+      "activeJobs",
+      "capabilities"
+    ],
+    "settingsPatchFields": [
+      "displayName",
+      "launchAtLogin",
+      "enabled",
+      "gatewayUrl",
+      "fileAccessMode",
+      "controlMode",
+      "approvalMode",
+      "allowShell"
+    ],
+    "setupChecklistActions": [
+      "pair_personal_device",
+      "connect_agent",
+      "enable_launch_at_login",
+      "choose_allowed_folder",
+      "open_full_disk_settings",
+      "open_screen_recording_settings",
+      "open_accessibility_settings",
+      "enable_shell"
+    ]
+  },
+  "gateway": {
+    "desktopWebSocket": "/desktop-agent/connect",
+    "desktopHttpPolling": {
+      "claimJobs": "POST /api/desktop/devices/<deviceId>/jobs/claim?limit=<n>",
+      "heartbeat": "POST /api/desktop/devices/<deviceId>/heartbeat",
+      "jobEvents": "POST /api/desktop/jobs/<jobId>/events",
+      "jobResult": "POST /api/desktop/jobs/<jobId>/result",
+      "cancelJob": "POST /api/desktop/jobs/<jobId>/cancel",
+      "promptResponse": "POST /api/desktop/jobs/<jobId>/prompts/<promptId>/respond",
+      "behavior": "When gatewayUrl is http:// or https://, the desktop uses bearer device-token HTTP polling instead of WebSocket delivery. Claimed jobs use the same signed job.start envelope, queued backend commands deliver job.cancel and job.user_response messages, and desktop-originated progress, screenshot, prompt, file, heartbeat, and result events are posted to backend HTTP routes.",
+      "vercelProtectionBypass": {
+        "secretEnv": "CI_DESKTOP_AGENT_VERCEL_BYPASS_SECRET",
+        "fallbackSecretEnv": "VERCEL_AUTOMATION_BYPASS_SECRET",
+        "hostAllowlistEnv": "CI_DESKTOP_AGENT_VERCEL_BYPASS_HOSTS",
+        "cookieModeEnv": "CI_DESKTOP_AGENT_VERCEL_SET_BYPASS_COOKIE",
+        "behavior": "When a bypass secret is configured, desktop pairing, revocation, polling, heartbeat, event, and result HTTP requests send x-vercel-protection-bypass only to *.vercel.app gateway hosts or explicit CI_DESKTOP_AGENT_VERCEL_BYPASS_HOSTS entries. The secret is not persisted in desktop settings."
+      }
+    },
+    "intelligenceChatTools": {
+      "tools": [
+        "list_desktop_devices",
+        "run_desktop_capability",
+        "cancel_desktop_job",
+        "respond_desktop_prompt"
+      ],
+      "behavior": "The Client Intelligence backend exposes these as owner-only Intelligence chat tools. They are not client-workspace tools and are denied to non-owner team seats/platform admins."
+    },
+    "chatWebSocket": "/chat?ownerUserId=<ownerUserId>&chatId=<chatId>&after=<eventSeq>&lastEventId=<eventId>",
+    "mockChatApiTokenEnv": "CI_DESKTOP_AGENT_CHAT_API_TOKEN",
+    "mockChatApiAuth": "When CI_DESKTOP_AGENT_CHAT_API_TOKEN is set, mock chat/control HTTP APIs require Authorization: Bearer <token>, and the mock chat WebSocket requires either the bearer token or chatToken query parameter for browser clients.",
+    "eventReplay": {
+      "cursors": [
+        "after",
+        "lastEventId",
+        "eventSeq",
+        "lastSeq"
+      ],
+      "retentionEnv": "CI_DESKTOP_AGENT_MAX_EVENTS",
+      "metadataFields": [
+        "replayFromSeq",
+        "firstSeq",
+        "retainedEventCount",
+        "maxRetainedEvents",
+        "replayTruncated",
+        "lastSeq"
+      ],
+      "behavior": "Mock gateway replay APIs accept a numeric sequence cursor or stable event ID cursor. If both are supplied and lastEventId is unknown, replay falls back to the numeric cursor. Responses include retention metadata so chat clients can detect stale cursors whose earlier events have been dropped."
+    },
+    "jobIdentity": {
+      "behavior": "Mock gateway generated jobId values include timestamp and random entropy; backend job IDs must be globally unique and must not depend on millisecond timestamps alone."
+    },
+    "jobCreation": {
+      "structuredJobBody": "{ tool, args, policy }",
+      "behavior": "POST /api/jobs accepts command text for mock-chat ergonomics and structured backend-style jobs. Structured jobs are rejected before persistence or delivery unless the tool is advertised in this contract, args is an object that validates against the tool inputSchema, and policy contains only supported approvalMode, timeoutMs, and screenshotAfterAction fields."
+    },
+    "resultValidation": {
+      "behavior": "Completed desktop job.result events are validated against the assigned tool outputSchema before terminal state is written. Malformed result payloads are rejected as agent.event.rejected with reason invalid_result and do not overwrite job state."
+    },
+    "deviceRecordFields": [
+      "id",
+      "ownerUserId",
+      "displayName",
+      "status",
+      "capabilities",
+      "capabilityManifest",
+      "lastSeenAt",
+      "activeJobIds",
+      "activeJobs"
+    ],
+    "http": [
+      {
+        "method": "GET",
+        "path": "/api/state?ownerUserId=<ownerUserId>&chatId=<chatId>"
+      },
+      {
+        "method": "GET",
+        "path": "/api/devices?ownerUserId=<ownerUserId>"
+      },
+      {
+        "method": "GET",
+        "path": "/api/events?after=<eventSeq>&lastEventId=<eventId>&ownerUserId=<ownerUserId>&chatId=<chatId>"
+      },
+      {
+        "method": "GET",
+        "path": "/api/jobs?ownerUserId=<ownerUserId>&chatId=<chatId>"
+      },
+      {
+        "method": "POST",
+        "path": "/api/desktop/devices/pair"
+      },
+      {
+        "method": "POST",
+        "path": "/api/desktop/devices/:deviceId/revoke",
+        "auth": "Device bearer token required when CI_DESKTOP_AGENT_REQUIRE_TOKEN=1; token must belong to :deviceId."
+      },
+      {
+        "method": "POST",
+        "path": "/api/jobs"
+      },
+      {
+        "method": "POST",
+        "path": "/api/jobs/:jobId/cancel"
+      },
+      {
+        "method": "POST",
+        "path": "/api/respond"
+      }
+    ]
+  },
+  "serverEvents": [
+    {
+      "type": "job.start",
+      "required": [
+        "jobId",
+        "tool",
+        "ownerUserId"
+      ],
+      "optional": [
+        "targetDeviceId",
+        "chatId",
+        "args",
+        "policy",
+        "signature"
+      ]
+    },
+    {
+      "type": "job.cancel",
+      "required": [
+        "jobId"
+      ],
+      "optional": [
+        "reason"
+      ]
+    },
+    {
+      "type": "job.user_response",
+      "required": [
+        "jobId",
+        "promptId",
+        "response"
+      ]
+    },
+    {
+      "type": "ping",
+      "required": []
+    }
+  ],
+  "clientEvents": [
+    {
+      "type": "hello",
+      "required": [
+        "displayName",
+        "agentVersion",
+        "capabilities"
+      ],
+      "optional": [
+        "deviceId",
+        "capabilityManifest"
+      ]
+    },
+    {
+      "type": "heartbeat",
+      "required": [
+        "activeJobIds"
+      ],
+      "optional": [
+        "deviceId",
+        "activeJobs",
+        "capabilities",
+        "capabilityManifest"
+      ]
+    },
+    {
+      "type": "job.progress",
+      "required": [
+        "jobId",
+        "message"
+      ]
+    },
+    {
+      "type": "job.result",
+      "required": [
+        "jobId",
+        "status"
+      ],
+      "optional": [
+        "result",
+        "error"
+      ]
+    },
+    {
+      "type": "job.screenshot",
+      "required": [
+        "jobId",
+        "image"
+      ]
+    },
+    {
+      "type": "job.file_event",
+      "required": [
+        "jobId",
+        "event"
+      ]
+    },
+    {
+      "type": "job.input_required",
+      "required": [
+        "jobId",
+        "promptId",
+        "kind",
+        "message"
+      ],
+      "optional": [
+        "metadata"
+      ]
+    }
+  ],
+  "jobPolicy": {
+    "approvalMode": [
+      "ask_every_time",
+      "session",
+      "device",
+      "always_for_owner"
+    ],
+    "approvalModeBehavior": "always_for_owner skips prompts only for non-approval-worthy capabilities. Approval-worthy capabilities still require approval unless covered by a valid session or device grant.",
+    "approvalDecisionAudit": "Every approval response is written to the local audit log as approval.decision with owner/chat/device scope, safe target metadata, approvalSource scope, and allowed/denied result. Device-scoped grants also write approval.grant.device after the local policy grant is persisted.",
+    "timeoutMs": {
+      "type": "number",
+      "min": 1,
+      "queueBehavior": "Queued mock-gateway jobs expire if they are not delivered before createdAt + timeoutMs; expired and cancelled queued jobs are terminal and are not replayed to reconnecting desktops.",
+      "runningBehavior": "Delivered mock-gateway jobs expire if they remain running or waiting_for_user beyond startedAt + timeoutMs. The gateway marks them terminal expired, clears prompts, emits job.expired, and sends job.cancel with reason backend_timeout to the assigned desktop.",
+      "desktopClampMs": {
+        "min": 1000,
+        "max": 600000
+      }
+    },
+    "screenshotAfterAction": {
+      "type": "boolean",
+      "behavior": "When true, the desktop attempts a screen.screenshot after a successful non-screenshot action and emits it as job.screenshot before job.result. Screenshot failures are reported as job.progress and do not fail the original action."
+    }
+  },
+  "promptResponses": {
+    "behavior": "Mock-gateway prompt responses are accepted only for an existing owner/chat-scoped job and a currently pending promptId attached to that same job. Unknown, duplicate, cross-owner, cross-chat, and wrong-job responses are rejected."
+  },
+  "promptLifecycle": {
+    "behavior": "Pending prompts are cleared when their job is cancelled, expires, or receives a terminal job.result. Late responses to cleared prompts are rejected."
+  },
+  "auditLog": {
+    "storage": "bounded local JSONL in desktop app data directory",
+    "bridgeMethods": [
+      "getAudit",
+      "getAuditInfo",
+      "clearAudit"
+    ],
+    "bridgeReadLimits": {
+      "defaultEntries": 100,
+      "maxEntries": 500,
+      "behavior": "Trusted bridge getAudit(limit) normalizes non-numeric, fractional, non-positive, and oversized limits before reading local audit history."
+    },
+    "fields": [
+      "timestamp",
+      "deviceId",
+      "jobId",
+      "ownerUserId",
+      "targetDeviceId",
+      "chatId",
+      "tool",
+      "action",
+      "target",
+      "approvalSource",
+      "result",
+      "error"
+    ],
+    "targetBehavior": "Capability audit entries include safe target metadata such as file path, app name, input coordinate, secret name, source ID, command name, or URL origin. URL paths/query strings, file contents, screenshots, clipboard text, and raw secrets are not written to audit targets.",
+    "redactionBehavior": "Audit target and error fields redact bearer tokens plus password/secret/token/api-key shaped values before writing and again when reading.",
+    "retentionEnv": "CI_DESKTOP_AGENT_AUDIT_MAX_ENTRIES",
+    "pathEnv": "CI_DESKTOP_AGENT_AUDIT_PATH"
+  },
+  "jobCancellation": {
+    "behavior": "Mock-gateway cancellation requires an existing owner/chat-scoped job. Cancelling a queued job marks it cancelled without delivering it after reconnect."
+  },
+  "agentEventAuthorization": {
+    "behavior": "Mock-gateway desktop-originated job events are accepted only for existing non-terminal jobs assigned to the connected device. Unknown-job, wrong-device, and terminal-job job.progress, job.input_required, job.screenshot, job.file_event, and job.result events are rejected before job state, prompts, or chat delivery are updated."
+  },
+  "activeJobSummary": {
+    "fields": [
+      "jobId",
+      "tool",
+      "ownerUserId",
+      "targetDeviceId",
+      "chatId",
+      "startedAt"
+    ],
+    "behavior": "Desktop heartbeat and status payloads can include structured activeJobs so chat clients can show the running tool and owner/chat/device scope without inspecting job history."
+  },
+  "connectionRetryStatus": {
+    "fields": [
+      "reconnectAttempt",
+      "nextReconnectAt",
+      "nextReconnectDelayMs"
+    ],
+    "behavior": "Desktop status includes pending reconnect timing so chat clients can show when an offline Mac will retry instead of only showing a generic disconnected state."
+  },
+  "connectionReadiness": {
+    "requiredLocalState": [
+      "deviceId",
+      "ownerUserId",
+      "deviceToken"
+    ],
+    "behavior": "When enabled, the desktop agent fails closed and does not open a gateway socket unless it has a paired deviceId, paired ownerUserId, and device token loaded from Keychain or legacy migration."
+  },
+  "tokenStorage": {
+    "deviceTokenStore": "macOS Keychain",
+    "persistedSettingsPolicy": "deviceToken and jobSigningSecret are never written to settings JSON",
+    "legacyMigration": "Legacy plaintext settings tokens are migrated to Keychain before use. If Keychain migration fails, the desktop does not hydrate the token and does not strip the legacy value, preserving the only copy for a later migration retry."
+  },
+  "authorizationState": {
+    "deviceApprovalGrantScope": "paired device identity",
+    "behavior": "Pairing or revoking a personal device clears persisted deviceApprovalGrants plus in-memory session approvals and cached job results so stale grants cannot carry across identity changes."
+  },
+  "screenshotImage": {
+    "required": [
+      "mimeType",
+      "data"
+    ],
+    "optional": [
+      "width",
+      "height",
+      "format",
+      "quality",
+      "sourceId",
+      "name",
+      "sourceType",
+      "displayId",
+      "bounds",
+      "scaleFactor"
+    ],
+    "encoding": "format can be png or jpeg. JPEG quality is clamped to 1-100 and is useful for lower-bandwidth phone control streams.",
+    "coordinateMapping": "When bounds is present, chat clients should map image-local x/y to screen coordinates with bounds.x + (localX / image.width) * bounds.width and bounds.y + (localY / image.height) * bounds.height before sending input.click.",
+    "replaySafeMetadata": [
+      "width",
+      "height",
+      "format",
+      "quality",
+      "sourceId",
+      "name",
+      "sourceType",
+      "displayId",
+      "bounds",
+      "scaleFactor"
+    ]
+  },
+  "jobSignature": {
+    "requiredWhenDeviceHasSigningSecret": true,
+    "algorithm": "hmac-sha256",
+    "keyDerivation": "sha256:<sha256(deviceToken)>",
+    "maxAgeMs": 300000,
+    "maxFutureSkewMs": 60000,
+    "replayProtection": "Desktop remembers recently used signature nonces in memory and rejects replayed signed envelopes within the freshness window. Pair/revoke clears the nonce cache with other authorization state.",
+    "canonicalPayloadFields": [
+      "jobId",
+      "tool",
+      "ownerUserId",
+      "targetDeviceId",
+      "chatId",
+      "args",
+      "policy",
+      "signedAt",
+      "nonce"
+    ],
+    "envelope": {
+      "algorithm": "hmac-sha256",
+      "signedAt": "ISO-8601 timestamp",
+      "nonce": "random hex string",
+      "value": "hex HMAC-SHA256 digest"
+    }
+  },
+  "redaction": {
+    "storedAndReplayablePayloads": [
+      "password",
+      "secret",
+      "token",
+      "authorization",
+      "content",
+      "contentBase64",
+      "data",
+      "imagePreview",
+      "clipboard.write_text.args.text",
+      "device.deviceTokenHash"
+    ],
+    "liveOnlyPayloads": [
+      "job.screenshot.imagePreview",
+      "job.result.filePreview"
+    ]
+  },
+  "liveResultPreview": {
+    "behavior": "Live chat delivery may include bounded filePreview for completed file read or binary read results. Stored job state, persisted state, and event replay must redact filePreview content, raw file content, and base64 payloads.",
+    "liveTextPreviewMaxChars": 102400,
+    "liveBinaryPreviewMaxBase64Chars": 1048576,
+    "storedStringMaxChars": 4096,
+    "textPreviewFields": [
+      "kind",
+      "path",
+      "size",
+      "encoding",
+      "content",
+      "truncated"
+    ],
+    "binaryPreviewFields": [
+      "kind",
+      "path",
+      "fileName",
+      "size",
+      "encoding",
+      "truncated",
+      "contentBase64",
+      "dataUrl"
+    ]
+  },
+  "fileScopePolicy": {
+    "selectedFolderCanonicalization": true,
+    "behavior": "Selected-folder access checks canonicalize existing path prefixes before authorization, so symlinks inside allowed folders cannot escape to blocked locations."
+  },
+  "appControl": {
+    "pathPolicy": "apps.open, apps.activate, and apps.quit may target apps by name. When a path is supplied, it must resolve syntactically to a .app bundle path. Arbitrary document/file opening must use scoped files.open instead."
+  },
+  "shellExecution": {
+    "disabledByDefault": true,
+    "requiresApproval": true,
+    "scopedWorkingDirectory": true,
+    "commandPathPolicy": "Commands must be executable files in /usr/bin or /bin. Bare command names are resolved only against those directories and never through the desktop process PATH, cwd, or user-controlled folders.",
+    "behavior": "shell.run only runs when allowShell is enabled. In selected-folder mode, omitted cwd defaults to the first allowed folder and supplied cwd values must resolve inside the allowed folders. In full-disk mode, supplied cwd may resolve to any valid directory."
+  },
+  "mockCommands": [
+    {
+      "command": "open <url>",
+      "tool": "browser.open_url"
+    },
+    {
+      "command": "open-browser <browser> :: <url>",
+      "tool": "browser.open_url"
+    },
+    {
+      "command": "chrome <url>",
+      "tool": "browser.open_url"
+    },
+    {
+      "command": "safari <url>",
+      "tool": "browser.open_url"
+    },
+    {
+      "command": "screenshot",
+      "tool": "screen.screenshot"
+    },
+    {
+      "command": "screenshot-jpeg [quality] [width] [height]",
+      "tool": "screen.screenshot"
+    },
+    {
+      "command": "screenshot-source <sourceId> [width] [height] [format] [quality]",
+      "tool": "screen.screenshot"
+    },
+    {
+      "command": "sources",
+      "tool": "screen.sources"
+    },
+    {
+      "command": "windows",
+      "tool": "screen.sources"
+    },
+    {
+      "command": "stream [seconds] [intervalMs]",
+      "tool": "screen.stream"
+    },
+    {
+      "command": "stream-jpeg [seconds] [intervalMs] [quality]",
+      "tool": "screen.stream"
+    },
+    {
+      "command": "stream-source <sourceId> [seconds] [intervalMs] [format] [quality]",
+      "tool": "screen.stream"
+    },
+    {
+      "command": "app <name>",
+      "tool": "apps.open"
+    },
+    {
+      "command": "activate-app <name>",
+      "tool": "apps.activate"
+    },
+    {
+      "command": "apps",
+      "tool": "apps.list"
+    },
+    {
+      "command": "frontmost",
+      "tool": "apps.frontmost"
+    },
+    {
+      "command": "quit-app <name>",
+      "tool": "apps.quit"
+    },
+    {
+      "command": "sysinfo",
+      "tool": "system.info"
+    },
+    {
+      "command": "storage [path]",
+      "tool": "system.storage"
+    },
+    {
+      "command": "network",
+      "tool": "system.network"
+    },
+    {
+      "command": "network-all",
+      "tool": "system.network"
+    },
+    {
+      "command": "clip-read",
+      "tool": "clipboard.read_text"
+    },
+    {
+      "command": "clip-write <text>",
+      "tool": "clipboard.write_text"
+    },
+    {
+      "command": "stat <path>",
+      "tool": "files.stat"
+    },
+    {
+      "command": "list <path>",
+      "tool": "files.list"
+    },
+    {
+      "command": "read <path>",
+      "tool": "files.read"
+    },
+    {
+      "command": "tail <path> [:: lines]",
+      "tool": "files.tail"
+    },
+    {
+      "command": "watch <path> [:: seconds] [:: intervalMs]",
+      "tool": "files.watch"
+    },
+    {
+      "command": "download <path>",
+      "tool": "files.read_binary"
+    },
+    {
+      "command": "upload <path> :: <base64>",
+      "tool": "files.write_binary"
+    },
+    {
+      "command": "mkdir <path>",
+      "tool": "files.mkdir"
+    },
+    {
+      "command": "copy <source> :: <destination>",
+      "tool": "files.copy"
+    },
+    {
+      "command": "move <source> :: <destination>",
+      "tool": "files.move"
+    },
+    {
+      "command": "delete <path>",
+      "tool": "files.delete"
+    },
+    {
+      "command": "delete-recursive <path>",
+      "tool": "files.delete"
+    },
+    {
+      "command": "file-open <path>",
+      "tool": "files.open"
+    },
+    {
+      "command": "reveal <path>",
+      "tool": "files.reveal"
+    },
+    {
+      "command": "search <path> :: <query>",
+      "tool": "files.search"
+    },
+    {
+      "command": "click <x> <y> [button] [clickCount]",
+      "tool": "input.click"
+    },
+    {
+      "command": "click-in <expectedApp> :: <x> <y> [button] [clickCount]",
+      "tool": "input.click"
+    },
+    {
+      "command": "click-snap <x> <y> [button] [clickCount]",
+      "tool": "input.click",
+      "policy": {
+        "screenshotAfterAction": true
+      }
+    },
+    {
+      "command": "click-snap-in <expectedApp> :: <x> <y> [button] [clickCount]",
+      "tool": "input.click",
+      "policy": {
+        "screenshotAfterAction": true
+      }
+    },
+    {
+      "command": "drag <fromX> <fromY> <toX> <toY> [durationMs]",
+      "tool": "input.drag"
+    },
+    {
+      "command": "drag-in <expectedApp> :: <fromX> <fromY> <toX> <toY> [durationMs]",
+      "tool": "input.drag"
+    },
+    {
+      "command": "drag-snap <fromX> <fromY> <toX> <toY> [durationMs]",
+      "tool": "input.drag",
+      "policy": {
+        "screenshotAfterAction": true
+      }
+    },
+    {
+      "command": "drag-snap-in <expectedApp> :: <fromX> <fromY> <toX> <toY> [durationMs]",
+      "tool": "input.drag",
+      "policy": {
+        "screenshotAfterAction": true
+      }
+    },
+    {
+      "command": "scroll <deltaY> [deltaX] [x] [y]",
+      "tool": "input.scroll"
+    },
+    {
+      "command": "scroll-in <expectedApp> :: <deltaY> [deltaX] [x] [y]",
+      "tool": "input.scroll"
+    },
+    {
+      "command": "scroll-snap <deltaY> [deltaX] [x] [y]",
+      "tool": "input.scroll",
+      "policy": {
+        "screenshotAfterAction": true
+      }
+    },
+    {
+      "command": "scroll-snap-in <expectedApp> :: <deltaY> [deltaX] [x] [y]",
+      "tool": "input.scroll",
+      "policy": {
+        "screenshotAfterAction": true
+      }
+    },
+    {
+      "command": "type <text>",
+      "tool": "input.type_text"
+    },
+    {
+      "command": "type-in <expectedApp> :: <text>",
+      "tool": "input.type_text"
+    },
+    {
+      "command": "hotkey <key> [modifier...]",
+      "tool": "input.hotkey"
+    },
+    {
+      "command": "hotkey-in <expectedApp> :: <key> [modifier...]",
+      "tool": "input.hotkey"
+    },
+    {
+      "command": "press <key> [modifier...]",
+      "tool": "input.press_key"
+    },
+    {
+      "command": "press-in <expectedApp> :: <key> [modifier...]",
+      "tool": "input.press_key"
+    },
+    {
+      "command": "shell <command> [args...]",
+      "tool": "shell.run"
+    },
+    {
+      "command": "applescript <script>",
+      "tool": "automation.applescript"
+    },
+    {
+      "command": "secret-save <name> :: <secret>",
+      "tool": "secrets.save"
+    },
+    {
+      "command": "secret-exists <name>",
+      "tool": "secrets.exists"
+    },
+    {
+      "command": "secret-delete <name>",
+      "tool": "secrets.delete"
+    },
+    {
+      "command": "secret-fill <name>",
+      "tool": "secrets.fill_focused_field"
+    },
+    {
+      "command": "ask <message>",
+      "tool": "agent.ask_user"
+    },
+    {
+      "command": "secret <message>",
+      "tool": "agent.request_secret"
+    },
+    {
+      "command": "approval <message>",
+      "tool": "agent.request_approval"
+    }
+  ],
+  "capabilities": [
+    {
+      "name": "browser.open_url",
+      "description": "Open an http or https URL in the default browser.",
+      "risk": "low",
+      "requiredMacPermissions": [],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "browser": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "opened": {
+            "type": "string"
+          },
+          "browser": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "clipboard.read_text",
+      "description": "Read text from the Mac clipboard.",
+      "risk": "high",
+      "requiredMacPermissions": [],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "clipboard.write_text",
+      "description": "Write text to the Mac clipboard.",
+      "risk": "high",
+      "requiredMacPermissions": [],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "bytes": {
+            "type": "number"
+          },
+          "written": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "apps.open",
+      "description": "Open a local macOS application by name or path.",
+      "risk": "low",
+      "requiredMacPermissions": [],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "opened": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "apps.activate",
+      "description": "Bring a local macOS application forward before remote input.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "accessibility"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "opened": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "apps.list",
+      "description": "List running local processes visible to the desktop agent.",
+      "risk": "medium",
+      "requiredMacPermissions": [],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "apps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "pid": {
+                  "type": "number"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "count": {
+            "type": "number"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "apps.frontmost",
+      "description": "Inspect the current frontmost macOS app and active window title.",
+      "risk": "medium",
+      "requiredMacPermissions": [
+        "accessibility"
+      ],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "number"
+          },
+          "windowTitle": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "apps.quit",
+      "description": "Quit a local app by name, path, or process ID.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "automation"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "pid": {
+            "type": "number"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "quit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "system.info",
+      "description": "Inspect basic Mac system, CPU, memory, and uptime information.",
+      "risk": "low",
+      "requiredMacPermissions": [],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "arch": {
+            "type": "string"
+          },
+          "release": {
+            "type": "string"
+          },
+          "uptimeSeconds": {
+            "type": "number"
+          },
+          "loadAverage": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "cpu": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "number"
+              },
+              "model": {
+                "type": "string"
+              }
+            }
+          },
+          "memory": {
+            "type": "object",
+            "properties": {
+              "totalBytes": {
+                "type": "number"
+              },
+              "freeBytes": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "system.storage",
+      "description": "Inspect mounted volume storage capacity.",
+      "risk": "low",
+      "requiredMacPermissions": [],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "volumes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "filesystem": {
+                  "type": "string"
+                },
+                "sizeBytes": {
+                  "type": "number"
+                },
+                "usedBytes": {
+                  "type": "number"
+                },
+                "availableBytes": {
+                  "type": "number"
+                },
+                "capacity": {
+                  "type": "string"
+                },
+                "mount": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "count": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "system.network",
+      "description": "Inspect local network interfaces and addresses.",
+      "risk": "low",
+      "requiredMacPermissions": [],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "includeInternal": {
+            "type": "boolean"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "addresses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": "string"
+                },
+                "family": {
+                  "type": "string"
+                },
+                "cidr": {
+                  "type": "string"
+                },
+                "mac": {
+                  "type": "string"
+                },
+                "internal": {
+                  "type": "boolean"
+                },
+                "scopeid": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "count": {
+            "type": "number"
+          },
+          "includeInternal": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.stat",
+      "description": "Inspect file or folder metadata inside allowed scope.",
+      "risk": "low",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "modifiedAt": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.list",
+      "description": "List files inside an allowed folder or full-disk scope.",
+      "risk": "medium",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "files.search",
+      "description": "Search file names and optionally readable text content inside allowed scope.",
+      "risk": "medium",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "includeContent": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "number"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.read",
+      "description": "Read a file inside allowed scope.",
+      "risk": "medium",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.tail",
+      "description": "Read the last lines or bytes of a scoped file.",
+      "risk": "medium",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "number"
+          },
+          "bytes": {
+            "type": "number"
+          },
+          "encoding": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          },
+          "startByte": {
+            "type": "number"
+          },
+          "bytesRead": {
+            "type": "number"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "number"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.watch",
+      "description": "Watch a scoped file or folder and stream create, modify, and delete events.",
+      "risk": "medium",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "recursive": {
+            "type": "boolean"
+          },
+          "intervalMs": {
+            "type": "number"
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "maxEvents": {
+            "type": "number"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "recursive": {
+            "type": "boolean"
+          },
+          "eventsSent": {
+            "type": "number"
+          },
+          "intervalMs": {
+            "type": "number"
+          },
+          "durationMs": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.write",
+      "description": "Write a file inside allowed scope.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path",
+          "content"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.read_binary",
+      "description": "Read a binary file as base64 inside allowed scope.",
+      "risk": "medium",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "number"
+          },
+          "encoding": {
+            "const": "base64"
+          },
+          "contentBase64": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.write_binary",
+      "description": "Write base64 binary content to a file inside allowed scope.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path",
+          "contentBase64"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "contentBase64": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "number"
+          },
+          "encoding": {
+            "const": "base64"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.mkdir",
+      "description": "Create a directory inside allowed scope.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.copy",
+      "description": "Copy a file or directory inside allowed scope.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "sourcePath",
+          "destinationPath"
+        ],
+        "properties": {
+          "sourcePath": {
+            "type": "string"
+          },
+          "destinationPath": {
+            "type": "string"
+          },
+          "overwrite": {
+            "type": "boolean"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sourcePath": {
+            "type": "string"
+          },
+          "destinationPath": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "copied": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.move",
+      "description": "Move or rename a file or directory inside allowed scope.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "sourcePath",
+          "destinationPath"
+        ],
+        "properties": {
+          "sourcePath": {
+            "type": "string"
+          },
+          "destinationPath": {
+            "type": "string"
+          },
+          "overwrite": {
+            "type": "boolean"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sourcePath": {
+            "type": "string"
+          },
+          "destinationPath": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "moved": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.delete",
+      "description": "Delete a file or explicitly recursive directory inside allowed scope.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "recursive": {
+            "type": "boolean"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.open",
+      "description": "Open a scoped local file or folder on the Mac.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "opened": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "files.reveal",
+      "description": "Reveal a scoped local file or folder in Finder.",
+      "risk": "medium",
+      "requiredMacPermissions": [
+        "full_disk_access"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "revealed": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "screen.sources",
+      "description": "List available screen and optional window capture sources without image data.",
+      "risk": "medium",
+      "requiredMacPermissions": [
+        "screen_recording"
+      ],
+      "requiresApproval": false,
+      "canRunUnattended": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "includeWindows": {
+            "type": "boolean"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "displayId": {
+                  "type": "string"
+                },
+                "bounds": {
+                  "type": "object",
+                  "properties": {
+                    "x": {
+                      "type": "number"
+                    },
+                    "y": {
+                      "type": "number"
+                    },
+                    "width": {
+                      "type": "number"
+                    },
+                    "height": {
+                      "type": "number"
+                    }
+                  }
+                },
+                "scaleFactor": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "count": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "screen.screenshot",
+      "description": "Capture a screenshot and send it to chat.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "screen_recording"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "number"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "sourceId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sourceType": {
+            "type": "string"
+          },
+          "displayId": {
+            "type": "string"
+          },
+          "bounds": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "number"
+              },
+              "y": {
+                "type": "number"
+              },
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              }
+            }
+          },
+          "scaleFactor": {
+            "type": "number"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "number"
+          },
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "data": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "screen.stream",
+      "description": "Send repeated screenshots until duration, frame limit, or cancellation.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "screen_recording"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "width": {
+            "type": "number"
+          },
+          "height": {
+            "type": "number"
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "quality": {
+            "type": "number"
+          },
+          "intervalMs": {
+            "type": "number"
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "maxFrames": {
+            "type": "number"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "framesSent": {
+            "type": "number"
+          },
+          "intervalMs": {
+            "type": "number"
+          },
+          "durationMs": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "input.click",
+      "description": "Click a screen coordinate.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "accessibility"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "x",
+          "y"
+        ],
+        "properties": {
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "button": {
+            "type": "string"
+          },
+          "clickCount": {
+            "type": "number"
+          },
+          "expectedFrontmostApp": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "button": {
+            "type": "string"
+          },
+          "clickCount": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "input.drag",
+      "description": "Drag from one screen coordinate to another.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "accessibility"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "fromX",
+          "fromY",
+          "toX",
+          "toY"
+        ],
+        "properties": {
+          "fromX": {
+            "type": "number"
+          },
+          "fromY": {
+            "type": "number"
+          },
+          "toX": {
+            "type": "number"
+          },
+          "toY": {
+            "type": "number"
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "expectedFrontmostApp": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "fromX": {
+            "type": "number"
+          },
+          "fromY": {
+            "type": "number"
+          },
+          "toX": {
+            "type": "number"
+          },
+          "toY": {
+            "type": "number"
+          },
+          "durationMs": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "input.scroll",
+      "description": "Scroll the focused app or a screen coordinate.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "accessibility"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "deltaY"
+        ],
+        "properties": {
+          "deltaX": {
+            "type": "number"
+          },
+          "deltaY": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          },
+          "expectedFrontmostApp": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "deltaX": {
+            "type": "number"
+          },
+          "deltaY": {
+            "type": "number"
+          },
+          "x": {
+            "type": "number"
+          },
+          "y": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "input.type_text",
+      "description": "Type text into the focused app.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "accessibility"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "expectedFrontmostApp": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "typedCharacters": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "input.hotkey",
+      "description": "Send a keyboard shortcut to the focused app.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "accessibility"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "modifiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expectedFrontmostApp": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "modifiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "input.press_key",
+      "description": "Press a special keyboard key such as Return, Escape, Tab, arrows, Delete, or function keys.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "accessibility"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "modifiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expectedFrontmostApp": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "modifiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "secrets.save",
+      "description": "Store a named secret in macOS Keychain without writing it to local settings.",
+      "risk": "high",
+      "requiredMacPermissions": [],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "name",
+          "secret"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "saved": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "secrets.exists",
+      "description": "Check whether a named Keychain secret exists without revealing its value.",
+      "risk": "medium",
+      "requiredMacPermissions": [],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "exists": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "secrets.delete",
+      "description": "Delete a named Keychain secret.",
+      "risk": "high",
+      "requiredMacPermissions": [],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "secrets.fill_focused_field",
+      "description": "Type a named Keychain secret into the currently focused field without returning it to chat.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "accessibility"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "filled": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    {
+      "name": "automation.applescript",
+      "description": "Run approved AppleScript for app automation.",
+      "risk": "high",
+      "requiredMacPermissions": [
+        "automation",
+        "accessibility"
+      ],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "script"
+        ],
+        "properties": {
+          "script": {
+            "type": "string"
+          },
+          "timeoutMs": {
+            "type": "number"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "stdout": {
+            "type": "string"
+          },
+          "stderr": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "shell.run",
+      "description": "Run a guarded local system command when shell access is enabled.",
+      "risk": "high",
+      "requiredMacPermissions": [],
+      "requiresApproval": true,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cwd": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "stdout": {
+            "type": "string"
+          },
+          "stderr": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "agent.ask_user",
+      "description": "Ask the user a text question and wait for a response.",
+      "risk": "low",
+      "requiredMacPermissions": [],
+      "requiresApproval": false,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "approved": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "secret": {
+            "const": "[redacted]"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "agent.request_secret",
+      "description": "Ask the user for a sensitive value without storing it in chat logs.",
+      "risk": "medium",
+      "requiredMacPermissions": [],
+      "requiresApproval": false,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "approved": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "secret": {
+            "const": "[redacted]"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "agent.request_approval",
+      "description": "Ask the user to approve or deny a pending action.",
+      "risk": "medium",
+      "requiredMacPermissions": [],
+      "requiresApproval": false,
+      "canRunUnattended": false,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "approved": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "secret": {
+            "const": "[redacted]"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  ]
+}
