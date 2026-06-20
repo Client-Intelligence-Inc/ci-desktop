@@ -52,6 +52,120 @@ let desktopAgent: DesktopAgentService | null = null;
 let agentTray: Tray | null = null;
 let lastNotifiedActiveJobCount: number | undefined;
 
+const NAVIGATION_CONTROLS_CSS = `
+  #ci-desktop-navigation-controls {
+    align-items: center;
+    background: color-mix(in srgb, Canvas 78%, transparent);
+    border: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+    border-radius: 7px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    display: flex;
+    gap: 2px;
+    height: 28px;
+    left: 76px;
+    padding: 2px;
+    position: fixed;
+    top: 7px;
+    z-index: 2147483647;
+    -webkit-app-region: no-drag;
+    backdrop-filter: blur(18px);
+  }
+
+  #ci-desktop-navigation-controls button {
+    align-items: center;
+    appearance: none;
+    background: transparent;
+    border: 0;
+    border-radius: 5px;
+    color: color-mix(in srgb, CanvasText 76%, transparent);
+    cursor: default;
+    display: inline-flex;
+    height: 24px;
+    justify-content: center;
+    margin: 0;
+    padding: 0;
+    width: 26px;
+    -webkit-app-region: no-drag;
+  }
+
+  #ci-desktop-navigation-controls button:not(:disabled):hover {
+    background: color-mix(in srgb, CanvasText 9%, transparent);
+    color: CanvasText;
+  }
+
+  #ci-desktop-navigation-controls button:not(:disabled):active {
+    background: color-mix(in srgb, CanvasText 14%, transparent);
+  }
+
+  #ci-desktop-navigation-controls button:disabled {
+    color: color-mix(in srgb, CanvasText 25%, transparent);
+  }
+
+  #ci-desktop-navigation-controls svg {
+    height: 15px;
+    pointer-events: none;
+    width: 15px;
+  }
+`;
+
+const NAVIGATION_CONTROLS_SCRIPT = `
+(() => {
+  if (window.__clientIntelligenceDesktopNavigationControlsInstalled) return;
+  const desktopApi = window.clientIntelligenceDesktop || window.electronAPI;
+  const navigation = desktopApi && desktopApi.navigation;
+  if (!navigation) return;
+
+  window.__clientIntelligenceDesktopNavigationControlsInstalled = true;
+
+  const root = document.createElement('div');
+  root.id = 'ci-desktop-navigation-controls';
+  root.setAttribute('aria-label', 'Desktop browser navigation');
+
+  const icons = {
+    back: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    forward: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    reload: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M18.4 10A7 7 0 0 0 6.3 7.8L4 11m16 2-2.3 3.2A7 7 0 0 1 5.6 14" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  };
+
+  function makeButton(name, label, onClick) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.dataset.navigationButton = name;
+    button.setAttribute('aria-label', label);
+    button.title = label;
+    button.innerHTML = icons[name];
+    button.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void onClick();
+    });
+    return button;
+  }
+
+  const back = makeButton('back', 'Back', () => navigation.back());
+  const forward = makeButton('forward', 'Forward', () => navigation.forward());
+  const reload = makeButton('reload', 'Refresh', () => navigation.reload());
+  root.append(back, forward, reload);
+
+  function attach() {
+    if (!document.body) {
+      window.requestAnimationFrame(attach);
+      return;
+    }
+    if (!root.isConnected) document.body.appendChild(root);
+  }
+
+  function update(state) {
+    back.disabled = !state || !state.canGoBack;
+    forward.disabled = !state || !state.canGoForward;
+  }
+
+  attach();
+  void navigation.getState().then(update).catch(() => update(null));
+  navigation.onStateChange(update);
+})();
+`;
+
 interface WindowState {
   width: number;
   height: number;
@@ -86,6 +200,29 @@ function saveWindowState(win: BrowserWindow): void {
     fs.writeFileSync(getWindowStatePath(), JSON.stringify(state));
   } catch {
     // ignore write errors
+  }
+}
+
+function getNavigationState(win = mainWindow): { canGoBack: boolean; canGoForward: boolean } {
+  return {
+    canGoBack: Boolean(win?.webContents.canGoBack()),
+    canGoForward: Boolean(win?.webContents.canGoForward()),
+  };
+}
+
+function sendNavigationState(win = mainWindow): void {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send('navigation:state', getNavigationState(win));
+}
+
+async function installNavigationControls(win: BrowserWindow): Promise<void> {
+  if (win.isDestroyed()) return;
+  try {
+    await win.webContents.insertCSS(NAVIGATION_CONTROLS_CSS);
+    await win.webContents.executeJavaScript(NAVIGATION_CONTROLS_SCRIPT);
+    sendNavigationState(win);
+  } catch {
+    // The remote page may be navigating; the next did-finish-load will retry.
   }
 }
 
@@ -406,6 +543,22 @@ function createWindow(): void {
     contextMenu.popup()
   })
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    void installNavigationControls(mainWindow as BrowserWindow);
+  });
+
+  mainWindow.webContents.on('did-navigate', () => {
+    sendNavigationState();
+  });
+
+  mainWindow.webContents.on('did-navigate-in-page', () => {
+    sendNavigationState();
+  });
+
+  mainWindow.webContents.on('did-start-navigation', () => {
+    sendNavigationState();
+  });
+
   if (state.isMaximized) {
     mainWindow.maximize();
   }
@@ -428,6 +581,7 @@ function createWindow(): void {
         -webkit-app-region: no-drag;
       }
     `);
+    void installNavigationControls(mainWindow as BrowserWindow);
     mainWindow?.show();
   });
 
@@ -514,6 +668,30 @@ app.on('second-instance', () => {
 ipcMain.on('get-app-version', (event) => {
   event.returnValue = app.getVersion();
 });
+
+ipcMain.handle('navigation:back', () => {
+  if (mainWindow?.webContents.canGoBack()) {
+    mainWindow.webContents.goBack();
+  }
+  sendNavigationState();
+  return getNavigationState();
+});
+
+ipcMain.handle('navigation:forward', () => {
+  if (mainWindow?.webContents.canGoForward()) {
+    mainWindow.webContents.goForward();
+  }
+  sendNavigationState();
+  return getNavigationState();
+});
+
+ipcMain.handle('navigation:reload', () => {
+  mainWindow?.webContents.reload();
+  sendNavigationState();
+  return getNavigationState();
+});
+
+ipcMain.handle('navigation:get-state', () => getNavigationState());
 
 app.on('ready', () => {
   desktopAgent = new DesktopAgentService();

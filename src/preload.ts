@@ -1,15 +1,37 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   platform: process.platform,
   appVersion: ipcRenderer.sendSync('get-app-version') as string,
   isDesktopApp: true,
+  navigation: {
+    back: () => ipcRenderer.invoke('navigation:back'),
+    forward: () => ipcRenderer.invoke('navigation:forward'),
+    reload: () => ipcRenderer.invoke('navigation:reload'),
+    getState: () => ipcRenderer.invoke('navigation:get-state'),
+    onStateChange: (callback: (state: { canGoBack: boolean; canGoForward: boolean }) => void) => {
+      const listener = (_event: IpcRendererEvent, state: { canGoBack: boolean; canGoForward: boolean }) => callback(state);
+      ipcRenderer.on('navigation:state', listener);
+      return () => ipcRenderer.removeListener('navigation:state', listener);
+    },
+  },
 });
 
 contextBridge.exposeInMainWorld('clientIntelligenceDesktop', {
   platform: process.platform,
   appVersion: ipcRenderer.sendSync('get-app-version') as string,
   isDesktopApp: true,
+  navigation: {
+    back: () => ipcRenderer.invoke('navigation:back'),
+    forward: () => ipcRenderer.invoke('navigation:forward'),
+    reload: () => ipcRenderer.invoke('navigation:reload'),
+    getState: () => ipcRenderer.invoke('navigation:get-state'),
+    onStateChange: (callback: (state: { canGoBack: boolean; canGoForward: boolean }) => void) => {
+      const listener = (_event: IpcRendererEvent, state: { canGoBack: boolean; canGoForward: boolean }) => callback(state);
+      ipcRenderer.on('navigation:state', listener);
+      return () => ipcRenderer.removeListener('navigation:state', listener);
+    },
+  },
   agent: {
     getStatus: () => ipcRenderer.invoke('agent:get-status'),
     getCapabilities: () => ipcRenderer.invoke('agent:get-capabilities'),
