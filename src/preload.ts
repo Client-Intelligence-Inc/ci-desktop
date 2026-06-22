@@ -15,6 +15,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('navigation:state', listener);
     },
   },
+  updater: {
+    check: () => ipcRenderer.invoke('updater:check'),
+    install: () => ipcRenderer.invoke('updater:install'),
+    onEvent: (callback: (data: Record<string, unknown>) => void) => {
+      const listener = (_event: IpcRendererEvent, data: Record<string, unknown>) => callback(data);
+      ipcRenderer.on('updater:event', listener);
+      return () => ipcRenderer.removeListener('updater:event', listener);
+    },
+  },
 });
 
 contextBridge.exposeInMainWorld('clientIntelligenceDesktop', {
@@ -30,6 +39,15 @@ contextBridge.exposeInMainWorld('clientIntelligenceDesktop', {
       const listener = (_event: IpcRendererEvent, state: { canGoBack: boolean; canGoForward: boolean }) => callback(state);
       ipcRenderer.on('navigation:state', listener);
       return () => ipcRenderer.removeListener('navigation:state', listener);
+    },
+  },
+  updater: {
+    check: () => ipcRenderer.invoke('updater:check'),
+    install: () => ipcRenderer.invoke('updater:install'),
+    onEvent: (callback: (data: Record<string, unknown>) => void) => {
+      const listener = (_event: IpcRendererEvent, data: Record<string, unknown>) => callback(data);
+      ipcRenderer.on('updater:event', listener);
+      return () => ipcRenderer.removeListener('updater:event', listener);
     },
   },
   agent: {

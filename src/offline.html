@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Client Intelligence — Offline</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+      background: #0c0c0f;
+      color: #e5e7eb;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+    .container {
+      text-align: center;
+      max-width: 400px;
+      padding: 2rem;
+      -webkit-app-region: no-drag;
+    }
+    .icon {
+      width: 64px;
+      height: 64px;
+      margin: 0 auto 24px;
+      background: linear-gradient(135deg, #B8962E, #d4b84a);
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 700;
+      color: #0c0c0f;
+    }
+    h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #f3f4f6;
+    }
+    p {
+      font-size: 14px;
+      color: #9ca3af;
+      line-height: 1.6;
+      margin-bottom: 24px;
+    }
+    button {
+      appearance: none;
+      background: linear-gradient(135deg, #B8962E, #d4b84a);
+      border: none;
+      border-radius: 8px;
+      color: #0c0c0f;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 10px 24px;
+      transition: opacity 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    button:hover { opacity: 0.9; }
+    button:active { opacity: 0.8; transform: scale(0.98); }
+    .status {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">CI</div>
+    <h1>No internet connection</h1>
+    <p>Client Intelligence requires an internet connection. Check your network and try again.</p>
+    <button onclick="retry()">Try again</button>
+    <div class="status" id="status"></div>
+  </div>
+  <script>
+    function retry() {
+      const status = document.getElementById('status');
+      status.textContent = 'Reconnecting...';
+      if (window.electronAPI && window.electronAPI.navigation) {
+        window.electronAPI.navigation.reload();
+      } else {
+        window.location.reload();
+      }
+    }
+  </script>
+</body>
+</html>
