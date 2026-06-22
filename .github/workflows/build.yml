@@ -17,7 +17,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run lint
@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
@@ -54,7 +54,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
@@ -75,12 +75,19 @@ jobs:
       - name: Verify code signature
         run: |
           APP_PATH="release/mac-universal/Client Intelligence.app"
-          if [ -d "$APP_PATH" ]; then
+          if [ ! -d "$APP_PATH" ]; then
+            echo "App bundle not found, skipping signature check"
+            exit 0
+          fi
+
+          if codesign -dv --verbose=4 "$APP_PATH" 2>&1 | grep -q "Authority=Developer ID Application:"; then
+            echo "Code signature verified: Developer ID Application"
             codesign --verify --deep --strict --verbose=2 "$APP_PATH"
-            codesign -dv --verbose=4 "$APP_PATH" 2>&1 | grep "Authority=Developer ID Application:" || {
-              echo "::error::App is not signed with Developer ID Application certificate"
-              exit 1
-            }
+          elif [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            echo "::error::Release build is not signed with Developer ID Application certificate"
+            exit 1
+          else
+            echo "::warning::App is not code-signed (expected on PR builds without signing secrets)"
           fi
 
       - name: Upload DMG artifact
@@ -99,7 +106,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - run: npm ci
