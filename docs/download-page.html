@@ -222,18 +222,29 @@
 
   <script>
     (async () => {
+      const btn = document.getElementById('download-link');
+      const info = document.getElementById('version-info');
       try {
         const res = await fetch('https://api.github.com/repos/joshforti/ci-desktop/releases/latest');
-        if (!res.ok) return;
+        if (!res.ok) {
+          btn.href = 'https://github.com/joshforti/ci-desktop/releases';
+          btn.textContent = 'View releases on GitHub';
+          return;
+        }
         const release = await res.json();
         const dmg = release.assets?.find(a => a.name.endsWith('.dmg'));
         if (dmg) {
-          document.getElementById('download-link').href = dmg.browser_download_url;
+          btn.href = dmg.browser_download_url;
           const sizeMB = Math.round(dmg.size / 1024 / 1024);
-          document.getElementById('version-info').textContent =
+          info.textContent =
             `Version ${release.tag_name.replace('v', '')} · ${sizeMB} MB · Universal (Apple Silicon + Intel)`;
+        } else {
+          btn.href = release.html_url;
+          info.textContent = `Version ${release.tag_name.replace('v', '')} · Universal (Apple Silicon + Intel)`;
         }
-      } catch {}
+      } catch {
+        btn.href = 'https://github.com/joshforti/ci-desktop/releases';
+      }
     })();
   </script>
 </body>

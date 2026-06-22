@@ -41,14 +41,37 @@ base64 -i ~/Desktop/certificate.p12 | pbcopy
 rm ~/Desktop/certificate.p12
 ```
 
+## Optional: Crash reporting (Sentry)
+
+1. Create a Sentry project at https://sentry.io for the "Electron" platform
+2. Copy the DSN from **Settings → Projects → Your Project → Client Keys (DSN)**
+3. Set the environment variable `CI_DESKTOP_SENTRY_DSN` in your build:
+   - For local development: add to `.env` (gitignored)
+   - For CI: add as a GitHub Actions secret and pass to the build step
+4. Crash reports are opt-in — only active in packaged builds, never in development
+5. PII (IP address, email) is automatically stripped before sending
+
+## Optional: Telemetry
+
+1. Set up an HTTPS endpoint that accepts POST requests with JSON body:
+   ```json
+   { "anonymousId": "uuid", "events": [{ "event": "app.launched", "timestamp": "...", ... }] }
+   ```
+2. Set `CI_DESKTOP_TELEMETRY_ENDPOINT` to that URL
+3. Telemetry is opt-in per user — users can toggle via settings
+4. Events are buffered and flushed every 5 minutes
+5. No PII is collected — only anonymous session IDs, event names, platform, and version
+
 ## Triggering a release
 
 ```bash
-# Bump version
-npm version patch  # or minor/major
+# Using the release script (recommended)
+npm run release:patch   # 1.0.0 -> 1.0.1
+npm run release:minor   # 1.0.0 -> 1.1.0
+npm run release:major   # 1.0.0 -> 2.0.0
 
-# Push with tag
-git push && git push --tags
+# Then push
+git push origin main --follow-tags
 ```
 
 The CI pipeline will:

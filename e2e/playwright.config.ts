@@ -8,7 +8,7 @@ export default defineConfig({
   workers: 1,
   reporter: [
     ['list'],
-    ['html', { outputFolder: '../test-results/e2e-report', open: 'never' }],
+    ['html', { outputFolder: '../e2e-report', open: 'never' }],
   ],
   use: {
     trace: 'retain-on-failure',

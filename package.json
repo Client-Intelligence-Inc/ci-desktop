@@ -28,7 +28,11 @@
     "agent:verify-tools": "npm run build && node scripts/verify-local-tools.js",
     "dist": "scripts/build-mac.sh",
     "dist:publish": "scripts/build-mac.sh --publish always",
-    "generate-icon": "node scripts/generate-icon.js"
+    "generate-icon": "node scripts/generate-icon.js",
+    "release": "scripts/release.sh",
+    "release:patch": "scripts/release.sh patch",
+    "release:minor": "scripts/release.sh minor",
+    "release:major": "scripts/release.sh major"
   },
   "build": {
     "appId": "ai.clientintelligence.desktop",
