@@ -9,6 +9,7 @@
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "npm run build && npx playwright test --config e2e/playwright.config.ts",
     "lint": "tsc --noEmit",
     "agent:mock-gateway": "node scripts/mock-agent-gateway.js",
     "agent:generate-contract": "npm run build && node scripts/generate-agent-contract.js",
@@ -40,7 +41,8 @@
       "dist/**/*",
       "build/**/*",
       "src/offline.html",
-      "src/loading.html"
+      "src/loading.html",
+      "src/onboarding.html"
     ],
     "protocols": [
       {
@@ -110,6 +112,7 @@
     "electron": "^42.3.0",
     "electron-builder": "^26.8.1",
     "typescript": "^5.7.0",
+    "@playwright/test": "^1.52.0",
     "vitest": "^3.2.1"
   },
   "dependencies": {

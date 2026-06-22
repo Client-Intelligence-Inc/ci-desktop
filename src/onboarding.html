@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome to Client Intelligence</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+      background: #0c0c0f;
+      color: #e5e7eb;
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-app-region: drag;
+      user-select: none;
+    }
+    .container {
+      text-align: center;
+      max-width: 480px;
+      padding: 2rem;
+      -webkit-app-region: no-drag;
+    }
+    .icon {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 32px;
+      background: linear-gradient(135deg, #B8962E, #d4b84a);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 36px;
+      font-weight: 700;
+      color: #0c0c0f;
+    }
+    h1 {
+      font-size: 26px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #f3f4f6;
+    }
+    p {
+      font-size: 15px;
+      color: #9ca3af;
+      line-height: 1.7;
+      margin-bottom: 32px;
+    }
+    .features {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      margin-bottom: 36px;
+      text-align: left;
+    }
+    .feature {
+      display: flex;
+      align-items: flex-start;
+      gap: 14px;
+      padding: 12px 16px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .feature-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+      background: rgba(184, 150, 46, 0.12);
+      color: #d4b84a;
+    }
+    .feature h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #f3f4f6;
+      margin-bottom: 2px;
+    }
+    .feature p {
+      font-size: 13px;
+      color: #9ca3af;
+      margin: 0;
+      line-height: 1.5;
+    }
+    .cta {
+      appearance: none;
+      background: linear-gradient(135deg, #B8962E, #d4b84a);
+      border: none;
+      border-radius: 10px;
+      color: #0c0c0f;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 600;
+      padding: 12px 32px;
+      width: 100%;
+      transition: opacity 0.15s;
+      -webkit-app-region: no-drag;
+    }
+    .cta:hover { opacity: 0.9; }
+    .cta:active { opacity: 0.8; transform: scale(0.98); }
+    .version {
+      font-size: 11px;
+      color: #4b5563;
+      margin-top: 16px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">CI</div>
+    <h1>Welcome to Client Intelligence</h1>
+    <p>Your client intelligence platform, natively on your Mac. Everything you need, right on your desktop.</p>
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">&#9889;</div>
+        <div>
+          <h3>Native performance</h3>
+          <p>Fast, dedicated app window with keyboard shortcuts and system integration.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#128274;</div>
+        <div>
+          <h3>Auto-updates</h3>
+          <p>Always stay on the latest version. Updates download and install automatically.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">&#128279;</div>
+        <div>
+          <h3>Deep linking</h3>
+          <p>Open Client Intelligence links directly in the app from anywhere on your Mac.</p>
+        </div>
+      </div>
+    </div>
+    <button class="cta" onclick="getStarted()">Get started</button>
+    <div class="version" id="version"></div>
+  </div>
+  <script>
+    const api = window.clientIntelligenceDesktop || window.electronAPI;
+    if (api && api.appVersion) {
+      document.getElementById('version').textContent = 'Version ' + api.appVersion;
+    }
+    function getStarted() {
+      if (api && api.onboarding) {
+        api.onboarding.complete();
+      }
+    }
+  </script>
+</body>
+</html>

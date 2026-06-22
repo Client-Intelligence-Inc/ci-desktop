@@ -22,9 +22,32 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+      - name: Dependency audit
+        run: npm audit --omit=dev --audit-level=high || true
+
+  e2e:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Build and run E2E tests
+        run: npm run test:e2e
+        env:
+          CI_DESKTOP_DISABLE_UPDATES: '1'
+      - name: Upload E2E report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: test-results/e2e-report/
 
   build:
-    needs: test
+    needs: [test, e2e]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

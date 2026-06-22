@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Download Client Intelligence for Mac</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+      background: #0c0c0f;
+      color: #e5e7eb;
+      min-height: 100vh;
+    }
+    .hero {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 80px 24px 60px;
+      text-align: center;
+    }
+    .icon {
+      width: 96px;
+      height: 96px;
+      margin: 0 auto 32px;
+      background: linear-gradient(135deg, #B8962E, #d4b84a);
+      border-radius: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 44px;
+      font-weight: 700;
+      color: #0c0c0f;
+    }
+    h1 {
+      font-size: 36px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: #f3f4f6;
+    }
+    .subtitle {
+      font-size: 18px;
+      color: #9ca3af;
+      line-height: 1.6;
+      margin-bottom: 40px;
+    }
+    .download-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, #B8962E, #d4b84a);
+      border: none;
+      border-radius: 12px;
+      color: #0c0c0f;
+      cursor: pointer;
+      font-size: 17px;
+      font-weight: 600;
+      padding: 14px 36px;
+      text-decoration: none;
+      transition: opacity 0.15s;
+    }
+    .download-btn:hover { opacity: 0.9; }
+    .download-btn svg { width: 20px; height: 20px; }
+    .meta {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #6b7280;
+    }
+    .meta a { color: #9ca3af; text-decoration: underline; }
+    .requirements {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 0 24px 60px;
+    }
+    .requirements h2 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #f3f4f6;
+    }
+    .req-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+    .req-card {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 20px;
+    }
+    .req-card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #f3f4f6;
+      margin-bottom: 6px;
+    }
+    .req-card p {
+      font-size: 13px;
+      color: #9ca3af;
+      line-height: 1.5;
+    }
+    .install-steps {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 0 24px 80px;
+    }
+    .install-steps h2 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 20px;
+      color: #f3f4f6;
+    }
+    .steps {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .step {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .step-num {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: rgba(184, 150, 46, 0.15);
+      color: #d4b84a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+    .step-text h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #f3f4f6;
+      margin-bottom: 4px;
+    }
+    .step-text p {
+      font-size: 14px;
+      color: #9ca3af;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="hero">
+    <div class="icon">CI</div>
+    <h1>Client Intelligence for Mac</h1>
+    <p class="subtitle">Get the full Client Intelligence experience natively on your Mac. Fast, secure, and always up to date.</p>
+    <a class="download-btn" id="download-link" href="#">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+      </svg>
+      Download for macOS
+    </a>
+    <div class="meta">
+      <span id="version-info">Universal binary (Apple Silicon + Intel)</span>
+      <br>
+      <a href="https://github.com/joshforti/ci-desktop/releases" target="_blank">View all releases</a>
+    </div>
+  </div>
+
+  <div class="requirements">
+    <h2>System requirements</h2>
+    <div class="req-grid">
+      <div class="req-card">
+        <h3>macOS</h3>
+        <p>macOS 11 Big Sur or later</p>
+      </div>
+      <div class="req-card">
+        <h3>Processor</h3>
+        <p>Apple Silicon or Intel (universal binary)</p>
+      </div>
+      <div class="req-card">
+        <h3>Storage</h3>
+        <p>~250 MB free disk space</p>
+      </div>
+      <div class="req-card">
+        <h3>Network</h3>
+        <p>Internet connection required</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="install-steps">
+    <h2>Installation</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-text">
+          <h3>Download the DMG</h3>
+          <p>Click the download button above. Your browser will download the installer.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-text">
+          <h3>Open and drag to Applications</h3>
+          <p>Double-click the DMG file and drag Client Intelligence to your Applications folder.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-text">
+          <h3>Launch and sign in</h3>
+          <p>Open Client Intelligence from Applications and sign in with your account. The app is signed and notarized by Apple — no security warnings.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-text">
+          <h3>Stay up to date</h3>
+          <p>The app automatically checks for updates and installs them in the background. You'll get a notification when a new version is ready.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (async () => {
+      try {
+        const res = await fetch('https://api.github.com/repos/joshforti/ci-desktop/releases/latest');
+        if (!res.ok) return;
+        const release = await res.json();
+        const dmg = release.assets?.find(a => a.name.endsWith('.dmg'));
+        if (dmg) {
+          document.getElementById('download-link').href = dmg.browser_download_url;
+          const sizeMB = Math.round(dmg.size / 1024 / 1024);
+          document.getElementById('version-info').textContent =
+            `Version ${release.tag_name.replace('v', '')} · ${sizeMB} MB · Universal (Apple Silicon + Intel)`;
+        }
+      } catch {}
+    })();
+  </script>
+</body>
+</html>

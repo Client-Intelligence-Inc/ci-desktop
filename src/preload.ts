@@ -50,6 +50,18 @@ contextBridge.exposeInMainWorld('clientIntelligenceDesktop', {
       return () => ipcRenderer.removeListener('updater:event', listener);
     },
   },
+  updateChannel: {
+    get: () => ipcRenderer.invoke('update-channel:get'),
+    set: (channel: string) => ipcRenderer.invoke('update-channel:set', channel),
+  },
+  telemetry: {
+    isEnabled: () => ipcRenderer.invoke('telemetry:is-enabled'),
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke('telemetry:set-enabled', enabled),
+  },
+  onboarding: {
+    isComplete: () => ipcRenderer.invoke('onboarding:is-complete'),
+    complete: () => ipcRenderer.invoke('onboarding:complete'),
+  },
   agent: {
     getStatus: () => ipcRenderer.invoke('agent:get-status'),
     getCapabilities: () => ipcRenderer.invoke('agent:get-capabilities'),
