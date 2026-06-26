@@ -110,7 +110,7 @@
   "author": "Josh Forti",
   "license": "PRIVATE",
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.0.1",
     "@types/ws": "^8.18.1",
     "canvas": "^3.2.3",
     "electron": "^42.3.0",
