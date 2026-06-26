@@ -41,7 +41,7 @@ jobs:
           CI_DESKTOP_DISABLE_UPDATES: '1'
       - name: Upload E2E report
         if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-report
           path: e2e-report/
@@ -91,7 +91,7 @@ jobs:
           fi
 
       - name: Upload DMG artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: Client-Intelligence-dmg
           path: release/*.dmg
