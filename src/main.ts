@@ -13,6 +13,9 @@ import {
 import * as path from 'path';
 import * as fs from 'fs';
 import { initUpdater, checkForUpdates } from './updater';
+import { initCrashReporter } from './crash-reporter';
+import { initTelemetry, trackEvent, isTelemetryEnabled, setTelemetryEnabled } from './telemetry';
+import { initUpdateChannelIpc, loadUpdateChannel, applyUpdateChannel } from './update-channel';
 import { initAgentIpc } from './agent/ipc';
 import { DesktopAgentService } from './agent/service';
 import {
@@ -676,14 +679,37 @@ function createWindow(): void {
     mainWindow = null;
   });
 
-  mainWindow.loadURL(APP_URL);
+  const loadingPath = path.join(__dirname, '..', 'src', 'loading.html');
+  const offlinePath = path.join(__dirname, '..', 'src', 'offline.html');
+  const onboardingPath = path.join(__dirname, '..', 'src', 'onboarding.html');
+
+  if (!isOnboardingComplete() && fs.existsSync(onboardingPath)) {
+    trackEvent('onboarding.shown');
+    mainWindow.loadFile(onboardingPath);
+  } else if (fs.existsSync(loadingPath)) {
+    mainWindow.loadFile(loadingPath).then(() => {
+      mainWindow?.loadURL(APP_URL).catch(() => {
+        if (mainWindow && !mainWindow.isDestroyed() && fs.existsSync(offlinePath)) {
+          mainWindow.loadFile(offlinePath);
+        }
+      });
+    });
+  } else {
+    mainWindow.loadURL(APP_URL).catch(() => {
+      if (mainWindow && !mainWindow.isDestroyed() && fs.existsSync(offlinePath)) {
+        mainWindow.loadFile(offlinePath);
+      }
+    });
+  }
 }
 
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv) => {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   }
+  const deepLinkUrl = argv.find((arg) => arg.startsWith('clientintelligence://'));
+  if (deepLinkUrl) handleDeepLink(deepLinkUrl);
 });
 
 ipcMain.on('get-app-version', (event) => {
@@ -714,7 +740,72 @@ ipcMain.handle('navigation:reload', () => {
 
 ipcMain.handle('navigation:get-state', () => getNavigationState());
 
+function handleDeepLink(url: string): void {
+  if (!url || !url.startsWith('clientintelligence://')) return;
+  try {
+    const parsed = new URL(url);
+    const appPath = parsed.pathname.replace(/^\/+/, '/');
+    const target = `${APP_URL}${appPath}${parsed.search}${parsed.hash}`;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.loadURL(target);
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  } catch {
+    // invalid deep link URL, ignore
+  }
+}
+
+app.setAsDefaultProtocolClient('clientintelligence');
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+
+function getOnboardingCompletePath(): string {
+  return path.join(app.getPath('userData'), 'onboarding-complete');
+}
+
+function isOnboardingComplete(): boolean {
+  return fs.existsSync(getOnboardingCompletePath());
+}
+
+function completeOnboarding(): void {
+  try {
+    fs.mkdirSync(path.dirname(getOnboardingCompletePath()), { recursive: true });
+    fs.writeFileSync(getOnboardingCompletePath(), '1');
+  } catch {
+    // best-effort
+  }
+}
+
+ipcMain.handle('onboarding:is-complete', () => isOnboardingComplete());
+
+ipcMain.handle('onboarding:complete', () => {
+  completeOnboarding();
+  trackEvent('onboarding.completed');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.loadURL(APP_URL).catch(() => {
+      const offlinePath = path.join(__dirname, '..', 'src', 'offline.html');
+      if (mainWindow && !mainWindow.isDestroyed() && fs.existsSync(offlinePath)) {
+        mainWindow.loadFile(offlinePath);
+      }
+    });
+  }
+});
+
+ipcMain.handle('telemetry:is-enabled', () => isTelemetryEnabled());
+ipcMain.handle('telemetry:set-enabled', (_event, enabled: boolean) => {
+  setTelemetryEnabled(enabled);
+});
+
 app.on('ready', () => {
+  void initCrashReporter();
+  initTelemetry();
+  const channel = loadUpdateChannel();
+  applyUpdateChannel(channel);
+  initUpdateChannelIpc();
   desktopAgent = new DesktopAgentService();
   initAgentIpc(desktopAgent, isTrustedPermissionOrigin);
   desktopAgent.start();

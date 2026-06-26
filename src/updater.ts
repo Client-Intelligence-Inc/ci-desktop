@@ -1,5 +1,5 @@
-import { autoUpdater } from 'electron-updater';
-import { Notification, app } from 'electron';
+import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-updater';
+import { BrowserWindow, Notification, app, ipcMain } from 'electron';
 
 let updateCheckInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -12,16 +12,38 @@ export function initUpdater(): void {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 
-  autoUpdater.on('update-available', (info) => {
-    console.log('Update available:', info.version);
+  autoUpdater.on('checking-for-update', () => {
+    broadcastUpdateEvent('checking-for-update', {});
   });
 
-  autoUpdater.on('update-downloaded', (info) => {
+  autoUpdater.on('update-available', (info: UpdateInfo) => {
+    console.log('Update available:', info.version);
+    broadcastUpdateEvent('update-available', {
+      version: info.version,
+      releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined,
+    });
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    broadcastUpdateEvent('update-not-available', {});
+  });
+
+  autoUpdater.on('download-progress', (progress: ProgressInfo) => {
+    broadcastUpdateEvent('download-progress', {
+      percent: Math.round(progress.percent),
+      transferred: progress.transferred,
+      total: progress.total,
+      bytesPerSecond: progress.bytesPerSecond,
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
     console.log('Update downloaded:', info.version);
+    broadcastUpdateEvent('update-downloaded', { version: info.version });
     try {
       const notification = new Notification({
         title: 'Client Intelligence',
-        body: 'A new version is available. Restart to update.',
+        body: `Version ${info.version} is ready. Restart to update.`,
       });
       notification.on('click', () => {
         autoUpdater.quitAndInstall(false, true);
@@ -34,6 +56,15 @@ export function initUpdater(): void {
 
   autoUpdater.on('error', (err) => {
     console.error('Auto-updater error:', err);
+    broadcastUpdateEvent('error', { message: String(err) });
+  });
+
+  ipcMain.handle('updater:check', () => {
+    checkForUpdates();
+  });
+
+  ipcMain.handle('updater:install', () => {
+    autoUpdater.quitAndInstall(false, true);
   });
 
   setTimeout(() => {
@@ -57,5 +88,13 @@ export function cleanup(): void {
   if (updateCheckInterval) {
     clearInterval(updateCheckInterval);
     updateCheckInterval = null;
+  }
+}
+
+function broadcastUpdateEvent(event: string, data: Record<string, unknown>): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send('updater:event', { event, ...data });
+    }
   }
 }

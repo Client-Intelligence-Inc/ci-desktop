@@ -15,6 +15,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('navigation:state', listener);
     },
   },
+  updater: {
+    check: () => ipcRenderer.invoke('updater:check'),
+    install: () => ipcRenderer.invoke('updater:install'),
+    onEvent: (callback: (data: Record<string, unknown>) => void) => {
+      const listener = (_event: IpcRendererEvent, data: Record<string, unknown>) => callback(data);
+      ipcRenderer.on('updater:event', listener);
+      return () => ipcRenderer.removeListener('updater:event', listener);
+    },
+  },
 });
 
 contextBridge.exposeInMainWorld('clientIntelligenceDesktop', {
@@ -31,6 +40,27 @@ contextBridge.exposeInMainWorld('clientIntelligenceDesktop', {
       ipcRenderer.on('navigation:state', listener);
       return () => ipcRenderer.removeListener('navigation:state', listener);
     },
+  },
+  updater: {
+    check: () => ipcRenderer.invoke('updater:check'),
+    install: () => ipcRenderer.invoke('updater:install'),
+    onEvent: (callback: (data: Record<string, unknown>) => void) => {
+      const listener = (_event: IpcRendererEvent, data: Record<string, unknown>) => callback(data);
+      ipcRenderer.on('updater:event', listener);
+      return () => ipcRenderer.removeListener('updater:event', listener);
+    },
+  },
+  updateChannel: {
+    get: () => ipcRenderer.invoke('update-channel:get'),
+    set: (channel: string) => ipcRenderer.invoke('update-channel:set', channel),
+  },
+  telemetry: {
+    isEnabled: () => ipcRenderer.invoke('telemetry:is-enabled'),
+    setEnabled: (enabled: boolean) => ipcRenderer.invoke('telemetry:set-enabled', enabled),
+  },
+  onboarding: {
+    isComplete: () => ipcRenderer.invoke('onboarding:is-complete'),
+    complete: () => ipcRenderer.invoke('onboarding:complete'),
   },
   agent: {
     getStatus: () => ipcRenderer.invoke('agent:get-status'),

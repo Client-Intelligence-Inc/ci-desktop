@@ -7,6 +7,10 @@
   "scripts": {
     "dev": "npm run build && electron .",
     "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run build && npx playwright test --config e2e/playwright.config.ts",
+    "lint": "tsc --noEmit",
     "agent:mock-gateway": "node scripts/mock-agent-gateway.js",
     "agent:generate-contract": "npm run build && node scripts/generate-agent-contract.js",
     "agent:verify": "npm run agent:verify-tools && npm run agent:verify-settings && npm run agent:verify-origin && npm run agent:verify-bridge && npm run agent:verify-audit && npm run agent:verify-approvals && npm run agent:verify-lifecycle && npm run agent:verify-capabilities && npm run agent:verify-pairing && npm run agent:verify-contract && npm run agent:verify-mock-gateway && npm run agent:verify-packaging",
@@ -24,7 +28,11 @@
     "agent:verify-tools": "npm run build && node scripts/verify-local-tools.js",
     "dist": "scripts/build-mac.sh",
     "dist:publish": "scripts/build-mac.sh --publish always",
-    "generate-icon": "node scripts/generate-icon.js"
+    "generate-icon": "node scripts/generate-icon.js",
+    "release": "scripts/release.sh",
+    "release:patch": "scripts/release.sh patch",
+    "release:minor": "scripts/release.sh minor",
+    "release:major": "scripts/release.sh major"
   },
   "build": {
     "appId": "ai.clientintelligence.desktop",
@@ -35,7 +43,16 @@
     },
     "files": [
       "dist/**/*",
-      "build/**/*"
+      "build/**/*",
+      "src/offline.html",
+      "src/loading.html",
+      "src/onboarding.html"
+    ],
+    "protocols": [
+      {
+        "name": "Client Intelligence",
+        "schemes": ["clientintelligence"]
+      }
     ],
     "mac": {
       "category": "public.app-category.business",
@@ -65,14 +82,19 @@
     },
     "dmg": {
       "title": "Client Intelligence",
+      "background": "build/dmg-background.png",
       "iconSize": 128,
+      "window": {
+        "width": 660,
+        "height": 400
+      },
       "contents": [
         {
-          "x": 130,
+          "x": 160,
           "y": 220
         },
         {
-          "x": 410,
+          "x": 500,
           "y": 220,
           "type": "link",
           "path": "/Applications"
@@ -93,9 +115,12 @@
     "canvas": "^3.2.3",
     "electron": "^42.3.0",
     "electron-builder": "^26.8.1",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "@playwright/test": "^1.52.0",
+    "vitest": "^3.2.1"
   },
   "dependencies": {
+    "@sentry/electron": "^6.1.0",
     "electron-updater": "^6.3.0",
     "ws": "^8.21.0"
   }
