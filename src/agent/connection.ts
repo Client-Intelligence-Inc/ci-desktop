@@ -33,6 +33,7 @@ import {
 type SettingsProvider = () => DesktopAgentSettings;
 type SettingsPersistor = (patch: Partial<DesktopAgentSettings>) => DesktopAgentSettings;
 type StatusListener = () => void;
+type ClientEventListener = (event: GatewayClientEvent) => void;
 type JobResultEvent = Extract<GatewayClientEvent, { type: 'job.result' }>;
 type FileWatchSnapshot = Map<string, {
   type: 'file' | 'directory' | 'other';
@@ -65,6 +66,7 @@ export class AgentConnection {
   private readonly activeJobIds = new Set<string>();
   private readonly activeJobs = new Map<string, ActiveJobSummary>();
   private readonly cancelledJobIds = new Set<string>();
+  private readonly localJobIds = new Set<string>();
   private readonly recentJobResults = new Map<string, RecentJobResult>();
   private readonly seenJobSignatureNonces = new Map<string, number>();
   private readonly sessionApprovals = new Set<string>();
@@ -77,6 +79,7 @@ export class AgentConnection {
   private lastConnectedAt: string | undefined;
   private lastHeartbeatAt: string | undefined;
   private listeners = new Set<StatusListener>();
+  private clientEventListeners = new Set<ClientEventListener>();
 
   constructor(
     private readonly getSettings: SettingsProvider,
@@ -86,6 +89,11 @@ export class AgentConnection {
   onStatusChange(listener: StatusListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  onClientEvent(listener: ClientEventListener): () => void {
+    this.clientEventListeners.add(listener);
+    return () => this.clientEventListeners.delete(listener);
   }
 
   getSnapshot(): {
@@ -252,7 +260,56 @@ export class AgentConnection {
     this.seenJobSignatureNonces.clear();
   }
 
+  runLocalJob(job: DesktopJob): { ok: true } | { ok: false; error: string } {
+    if (typeof job.jobId !== 'string' || !job.jobId) {
+      return { ok: false, error: 'Local desktop job requires a jobId' };
+    }
+    if (typeof job.tool !== 'string' || !job.tool) {
+      return { ok: false, error: 'Local desktop job requires a tool name' };
+    }
+
+    const event: Extract<GatewayServerEvent, { type: 'job.start' }> = {
+      type: 'job.start',
+      jobId: job.jobId,
+      tool: job.tool,
+      ownerUserId: job.ownerUserId,
+      targetDeviceId: job.targetDeviceId,
+      chatId: job.chatId,
+      args: job.args,
+      policy: job.policy,
+    };
+
+    const policyValidation = validateJobPolicy(event.policy);
+    if (!policyValidation.ok) return policyValidation;
+
+    const scopeValidation = validateJobScope(event, this.getSettings());
+    if (!scopeValidation.ok) return scopeValidation;
+
+    this.localJobIds.add(event.jobId);
+    void this.runJob(event).finally(() => {
+      const deleteTimer = setTimeout(() => {
+        this.localJobIds.delete(event.jobId);
+      }, RECENT_JOB_TTL_MS);
+      deleteTimer.unref?.();
+    });
+    return { ok: true };
+  }
+
+  respondToLocalPrompt(jobId: string, promptId: string, response: PromptResponse): boolean {
+    if (!this.localJobIds.has(jobId)) return false;
+    this.resolvePrompt(jobId, promptId, response);
+    return true;
+  }
+
+  cancelLocalJob(jobId: string, reason = 'local_control_center_cancelled'): boolean {
+    if (!this.localJobIds.has(jobId)) return false;
+    this.cancelJob(jobId, reason, true);
+    return true;
+  }
+
   send(event: GatewayClientEvent): void {
+    if (this.routeLocalClientEvent(event)) return;
+
     if (isHttpGatewayURL(this.getSettings().gatewayUrl)) {
       void this.sendHttpEvent(event);
       return;
@@ -1042,6 +1099,10 @@ export class AgentConnection {
         jobId,
         image: formatScreenshotImage(screenshot),
       };
+      if (this.localJobIds.has(jobId)) {
+        this.send(event);
+        return;
+      }
       if (isHttpGatewayURL(this.getSettings().gatewayUrl)) {
         await this.sendHttpEvent(event);
         return;
@@ -1215,6 +1276,12 @@ export class AgentConnection {
 
   private emitStatus(): void {
     for (const listener of this.listeners) listener();
+  }
+
+  private routeLocalClientEvent(event: GatewayClientEvent): boolean {
+    if (!isJobScopedClientEvent(event) || !this.localJobIds.has(event.jobId)) return false;
+    for (const listener of this.clientEventListeners) listener(event);
+    return true;
   }
 }
 
@@ -1656,4 +1723,12 @@ function validateConnectionReadiness(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isJobScopedClientEvent(event: GatewayClientEvent): event is GatewayClientEvent & { jobId: string } {
+  return (
+    Boolean(event && typeof event === 'object') &&
+    'jobId' in event &&
+    typeof (event as { jobId?: unknown }).jobId === 'string'
+  );
 }

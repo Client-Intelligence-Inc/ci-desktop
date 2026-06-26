@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { DesktopAgentService } = require('../dist/agent/service');
+const { appendAuditEntry } = require('../dist/agent/audit');
 const { getDefaultAgentSettings, saveAgentSettings } = require('../dist/agent/settings');
 
 main().catch((error) => {
@@ -85,6 +86,39 @@ async function main() {
     assert(
       statusAfterNativeFolder.allowedFolders.includes(forgedAllowedFolder),
       'native folder picker path should add selected folders',
+    );
+
+    const supportHomeFolder = path.join(os.homedir(), 'Private Client Files');
+    service.addAllowedFolderFromNativePicker(supportHomeFolder);
+    service.updateSettings({
+      gatewayUrl: 'https://clientintelligence.ai/desktop-agent?token=raw-support-token',
+    });
+    appendAuditEntry({
+      deviceId: 'support-device-id',
+      jobId: 'support-job-id',
+      ownerUserId: 'support-owner-id',
+      targetDeviceId: 'support-target-device-id',
+      chatId: 'support-chat-id',
+      tool: 'files.read',
+      action: 'tool.exception',
+      target: `${supportHomeFolder}/secret.txt?token=raw-support-token`,
+      result: 'failed',
+      error: 'failed with api_key=raw-support-key',
+    });
+    const supportBundle = await service.getSupportBundle(10);
+    const supportJson = JSON.stringify(supportBundle);
+    assert(supportBundle.audit.recent.length > 0, 'support bundle should include sanitized recent audit entries');
+    assert(supportBundle.status.allowedFolderCount >= 2, 'support bundle should include allowed folder count');
+    assert(!supportJson.includes('raw-support-token'), 'support bundle should not include raw URL or path tokens');
+    assert(!supportJson.includes('raw-support-key'), 'support bundle should not include raw API keys');
+    assert(!supportJson.includes(os.homedir()), 'support bundle should not include the raw local home path');
+    assert(
+      supportBundle.status.gatewayUrl === 'https://clientintelligence.ai/desktop-agent',
+      'support bundle should strip gateway URL search params',
+    );
+    assert(
+      supportBundle.status.allowedFolders.some((folder) => folder.startsWith('~/') || folder.includes('/Users/[user]/')),
+      'support bundle should redact local home paths while preserving useful folder shape',
     );
 
     let invalidPermissionRejected = false;

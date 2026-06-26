@@ -21,6 +21,8 @@ Go to **Settings → Secrets and variables → Actions** in the GitHub repo and 
 | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password for notarization | Generate at https://appleid.apple.com → Sign-In and Security → App-Specific Passwords |
 | `APPLE_TEAM_ID` | Your Apple Developer Team ID | Find at https://developer.apple.com/account → Membership Details |
 
+The local and CI release scripts run `xcrun notarytool history` before packaging. If Apple returns HTTP 403 for a missing or expired agreement, accept the current Apple Developer Program agreements in App Store Connect / Apple Developer before rerunning the release.
+
 ## Exporting the signing certificate
 
 ```bash
@@ -99,5 +101,6 @@ Check the Actions tab for build status. The "Verify code signature" step will co
 |-------|-----|
 | "No signing identity found" | Verify CSC_LINK is the full base64 output with no newlines |
 | "Notarization failed" | Verify APPLE_APP_SPECIFIC_PASSWORD is an app-specific password (not your account password) |
+| "missing or expired agreement" or Apple HTTP 403 | Accept the current Apple Developer Program agreements for the team, then rerun the build |
 | "Team ID mismatch" | Ensure APPLE_TEAM_ID matches the team on your Developer ID certificate |
 | Build succeeds but unsigned | Check the "Verify code signature" step output for details |

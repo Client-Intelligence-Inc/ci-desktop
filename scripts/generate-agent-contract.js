@@ -61,6 +61,14 @@ const contract = {
       allowed: ['full_disk_access', 'accessibility', 'screen_recording', 'automation'],
       behavior: 'Trusted bridge permission shortcuts reject unknown permission names before opening native System Settings URLs.',
     },
+    controlCenterPolicy: {
+      method: 'openAgentControlCenter',
+      behavior: 'Trusted app origins may bring the native Agent Control Center forward for local diagnostics, active-job visibility, kill switch access, setup checklist review, and guided permission work. Untrusted origins cannot invoke the IPC handler.',
+    },
+    supportBundlePolicy: {
+      method: 'getSupportBundle',
+      behavior: 'Trusted app origins may request a redacted diagnostics bundle for support. The bundle summarizes setup, permissions, connection state, active jobs, local job counts, capabilities, and sanitized recent audit entries without device tokens, raw secrets, file contents, screenshots, or unredacted local home paths.',
+    },
     methods: [
       'getStatus',
       'getCapabilities',
@@ -74,9 +82,11 @@ const contract = {
       'removeAllowedFolder',
       'clearAllowedFolders',
       'openPermissionSettings',
+      'openAgentControlCenter',
       'runLocalTool',
       'getAudit',
       'getAuditInfo',
+      'getSupportBundle',
       'clearAudit',
     ],
     statusFields: [

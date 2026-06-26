@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import { randomBytes, randomUUID } from 'crypto';
+import * as os from 'os';
 import { AgentConnection } from './connection';
 import { pairDeviceWithGateway, revokeDeviceWithGateway } from './pairing';
 import { getPermissionStatuses, openPermissionSettings } from './permissions';
@@ -18,16 +19,29 @@ import {
   AgentStatus,
   AuditEntry,
   AuditInfo,
+  DesktopJob,
   DesktopAgentSettings,
+  GatewayClientEvent,
+  LocalDesktopJobInput,
+  LocalDesktopJobRecord,
+  LocalDesktopJobEvent,
   MacPermissionName,
   PairPersonalDeviceInput,
+  PromptResponse,
   SetupChecklist,
   SetupChecklistItem,
+  SupportBundle,
   ToolResult,
 } from './types';
 
+const MAX_LOCAL_JOBS = 50;
+const MAX_LOCAL_JOB_EVENTS = 200;
+const MAX_LOCAL_JOB_SCREENSHOTS = 12;
+const DEFAULT_SUPPORT_BUNDLE_AUDIT_LIMIT = 50;
+
 export class DesktopAgentService {
   private settings = loadAgentSettings();
+  private readonly localJobs = new Map<string, LocalDesktopJobRecord>();
   private readonly connection = new AgentConnection(
     () => this.settings,
     (patch) => {
@@ -38,6 +52,7 @@ export class DesktopAgentService {
 
   constructor() {
     this.connection.onStatusChange(() => undefined);
+    this.connection.onClientEvent((event) => this.recordLocalJobEvent(event));
   }
 
   onStatusChange(listener: () => void): () => void {
@@ -385,6 +400,77 @@ export class DesktopAgentService {
     return getAuditInfo();
   }
 
+  async getSupportBundle(limit?: unknown): Promise<SupportBundle> {
+    const status = await this.getStatus();
+    const checklist = await this.getSetupChecklist();
+    const capabilities = getCapabilityManifest();
+    const auditInfo = getAuditInfo();
+    const auditLimit = normalizeSupportBundleLimit(limit);
+    const recentAudit = readAuditEntries(auditLimit).map(redactSupportAuditEntry);
+    const localJobs = this.getLocalDesktopJobs(10).map((job) => ({
+      jobId: redactIdentifier(job.jobId) || '[redacted]',
+      tool: job.tool,
+      status: job.status,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      eventCount: job.events.length,
+      screenshotCount: job.screenshots.length,
+      hasPendingPrompt: Boolean(job.pendingPrompt),
+      error: redactSupportString(job.error),
+    }));
+
+    return {
+      generatedAt: new Date().toISOString(),
+      appVersion: app?.getVersion?.() || 'unknown',
+      platform: process.platform,
+      arch: process.arch,
+      status: {
+        connection: status.connection,
+        enabled: status.enabled,
+        launchAtLogin: status.launchAtLogin,
+        deviceId: redactIdentifier(status.deviceId),
+        displayName: status.displayName,
+        gatewayUrl: redactGatewayUrl(status.gatewayUrl),
+        ownerUserId: redactIdentifier(status.ownerUserId),
+        fileAccessMode: status.fileAccessMode,
+        allowedFolderCount: status.allowedFolders.length,
+        allowedFolders: status.allowedFolders.map((folder) => redactSupportPath(folder) || '[redacted]'),
+        controlMode: status.controlMode,
+        approvalMode: status.approvalMode,
+        allowShell: status.allowShell,
+        permissions: status.permissions,
+        lastError: redactSupportString(status.lastError),
+        lastConnectedAt: status.lastConnectedAt,
+        lastHeartbeatAt: status.lastHeartbeatAt,
+        reconnectAttempt: status.reconnectAttempt,
+        nextReconnectAt: status.nextReconnectAt,
+        nextReconnectDelayMs: status.nextReconnectDelayMs,
+        activeJobCount: status.activeJobIds.length,
+        activeJobs: status.activeJobs.map((job) => ({
+          jobId: redactIdentifier(job.jobId) || '[redacted]',
+          tool: job.tool,
+          startedAt: job.startedAt,
+        })),
+      },
+      checklist,
+      capabilities: {
+        count: capabilities.length,
+        names: capabilities.map((capability) => capability.name),
+        approvalRequired: capabilities.filter((capability) => capability.requiresApproval).length,
+        highRisk: capabilities.filter((capability) => capability.risk === 'high').length,
+        canRunUnattended: capabilities.filter((capability) => capability.canRunUnattended).length,
+      },
+      audit: {
+        info: {
+          ...auditInfo,
+          path: redactSupportPath(auditInfo.path) || '[redacted]',
+        },
+        recent: recentAudit,
+      },
+      localJobs,
+    };
+  }
+
   clearAuditEntries(): AuditInfo {
     clearAuditEntries();
     return getAuditInfo();
@@ -412,6 +498,99 @@ export class DesktopAgentService {
       tool,
       args,
     }, this.settings);
+  }
+
+  runLocalDesktopJob(input: LocalDesktopJobInput): LocalDesktopJobRecord {
+    const normalized = normalizeLocalDesktopJobInput(input);
+    const jobId = `local_${Date.now()}_${randomUUID()}`;
+    const createdAt = new Date().toISOString();
+    const record: LocalDesktopJobRecord = {
+      jobId,
+      tool: normalized.tool,
+      args: summarizeLocalJobArgs(normalized.args),
+      policy: normalized.policy,
+      status: 'running',
+      createdAt,
+      updatedAt: createdAt,
+      events: [{
+        timestamp: createdAt,
+        type: 'job.progress',
+        message: `Queued ${normalized.tool}`,
+      }],
+      screenshots: [],
+    };
+
+    this.localJobs.set(jobId, record);
+    this.pruneLocalJobs();
+
+    const job: DesktopJob = {
+      jobId,
+      tool: normalized.tool,
+      args: normalized.args || {},
+      policy: normalized.policy,
+      ownerUserId: this.settings.ownerUserId || undefined,
+      targetDeviceId: this.settings.deviceId || undefined,
+      chatId: 'local-control-center',
+    };
+
+    const dispatch = this.connection.runLocalJob(job);
+    if (!dispatch.ok) {
+      this.markLocalJobFailed(jobId, dispatch.error);
+    }
+
+    return cloneLocalJobRecord(record);
+  }
+
+  getLocalDesktopJobs(limit?: unknown): LocalDesktopJobRecord[] {
+    const normalizedLimit = normalizeLocalJobLimit(limit);
+    return [...this.localJobs.values()]
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, normalizedLimit)
+      .map(cloneLocalJobRecord);
+  }
+
+  getLocalDesktopJob(jobId: string): LocalDesktopJobRecord | undefined {
+    const record = this.localJobs.get(String(jobId || ''));
+    return record ? cloneLocalJobRecord(record) : undefined;
+  }
+
+  respondToLocalDesktopPrompt(
+    jobId: string,
+    promptId: string,
+    response: PromptResponse,
+  ): LocalDesktopJobRecord {
+    const record = this.localJobs.get(String(jobId || ''));
+    if (!record || !record.pendingPrompt || record.pendingPrompt.promptId !== promptId) {
+      throw new Error('No matching local desktop prompt is pending');
+    }
+
+    const normalizedResponse = normalizePromptResponse(response, record.pendingPrompt.kind);
+    const accepted = this.connection.respondToLocalPrompt(record.jobId, promptId, normalizedResponse);
+    if (!accepted) {
+      throw new Error('Local desktop prompt is no longer active');
+    }
+
+    record.pendingPrompt = undefined;
+    record.status = 'running';
+    pushLocalJobEvent(record, {
+      timestamp: new Date().toISOString(),
+      type: 'job.progress',
+      message: `Answered ${record.tool} prompt`,
+      payload: summarizePromptResponse(normalizedResponse),
+    });
+    return cloneLocalJobRecord(record);
+  }
+
+  cancelLocalDesktopJob(jobId: string): LocalDesktopJobRecord {
+    const record = this.localJobs.get(String(jobId || ''));
+    if (!record) throw new Error('Unknown local desktop job');
+    const cancelled = this.connection.cancelLocalJob(record.jobId);
+    if (!cancelled) {
+      record.status = 'cancelled';
+      record.pendingPrompt = undefined;
+      record.updatedAt = new Date().toISOString();
+    }
+    return cloneLocalJobRecord(record);
   }
 
   private applyLaunchAtLogin(): void {
@@ -477,6 +656,115 @@ export class DesktopAgentService {
 
     return undefined;
   }
+
+  private recordLocalJobEvent(event: GatewayClientEvent): void {
+    if (!isLocalJobScopedEvent(event)) return;
+
+    const record = this.localJobs.get(event.jobId);
+    if (!record) return;
+
+    const timestamp = new Date().toISOString();
+    record.updatedAt = timestamp;
+
+    switch (event.type) {
+      case 'job.progress':
+        pushLocalJobEvent(record, {
+          timestamp,
+          type: event.type,
+          message: event.message,
+        });
+        break;
+      case 'job.input_required':
+        record.status = 'waiting_for_input';
+        record.pendingPrompt = {
+          promptId: event.promptId,
+          kind: event.kind,
+          message: event.message,
+          metadata: event.metadata,
+          createdAt: timestamp,
+        };
+        pushLocalJobEvent(record, {
+          timestamp,
+          type: event.type,
+          message: event.message,
+          payload: {
+            promptId: event.promptId,
+            kind: event.kind,
+            metadata: event.metadata,
+          },
+        });
+        break;
+      case 'job.screenshot':
+        record.screenshots.push({
+          receivedAt: timestamp,
+          image: event.image,
+        });
+        while (record.screenshots.length > MAX_LOCAL_JOB_SCREENSHOTS) record.screenshots.shift();
+        pushLocalJobEvent(record, {
+          timestamp,
+          type: event.type,
+          message: 'Screenshot received',
+          payload: {
+            mimeType: event.image.mimeType,
+            width: event.image.width,
+            height: event.image.height,
+            sourceId: event.image.sourceId,
+            name: event.image.name,
+            sourceType: event.image.sourceType,
+            displayId: event.image.displayId,
+            bounds: event.image.bounds,
+            scaleFactor: event.image.scaleFactor,
+          },
+        });
+        break;
+      case 'job.file_event':
+        pushLocalJobEvent(record, {
+          timestamp,
+          type: event.type,
+          message: `${event.event.action}: ${event.event.path}`,
+          payload: event.event,
+        });
+        break;
+      case 'job.result':
+        record.status = event.status;
+        record.pendingPrompt = undefined;
+        record.result = event.result;
+        record.error = event.error;
+        pushLocalJobEvent(record, {
+          timestamp,
+          type: event.type,
+          message: event.error || event.status,
+          payload: {
+            status: event.status,
+            result: event.result,
+            error: event.error,
+          },
+        });
+        break;
+    }
+  }
+
+  private markLocalJobFailed(jobId: string, error: string): void {
+    const record = this.localJobs.get(jobId);
+    if (!record) return;
+    const timestamp = new Date().toISOString();
+    record.status = 'failed';
+    record.error = error;
+    record.updatedAt = timestamp;
+    pushLocalJobEvent(record, {
+      timestamp,
+      type: 'job.result',
+      message: error,
+      payload: { status: 'failed', error },
+    });
+  }
+
+  private pruneLocalJobs(): void {
+    const jobs = [...this.localJobs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    for (const job of jobs.slice(MAX_LOCAL_JOBS)) {
+      this.localJobs.delete(job.jobId);
+    }
+  }
 }
 
 function controlModeAtLeast(
@@ -520,6 +808,182 @@ function fileScopeDetail(
       : 'Full-disk mode is selected, but macOS Full Disk Access still needs review.';
   }
   return 'File access is disabled. Choose folders or switch to full-disk mode.';
+}
+
+function normalizeLocalDesktopJobInput(input: LocalDesktopJobInput): LocalDesktopJobInput {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Local desktop job input must be an object');
+  }
+
+  const tool = typeof input.tool === 'string' ? input.tool.trim() : '';
+  if (!tool) {
+    throw new Error('Local desktop job tool must be a non-empty string');
+  }
+
+  return {
+    tool,
+    args: input.args && typeof input.args === 'object' && !Array.isArray(input.args)
+      ? input.args
+      : input.args || {},
+    policy: normalizeLocalJobPolicy(input.policy),
+  };
+}
+
+function normalizeLocalJobPolicy(policy: LocalDesktopJobInput['policy']): LocalDesktopJobInput['policy'] {
+  if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return undefined;
+
+  const normalized: NonNullable<LocalDesktopJobInput['policy']> = {};
+  if (
+    policy.approvalMode &&
+    ['ask_every_time', 'session', 'device', 'always_for_owner'].includes(policy.approvalMode)
+  ) {
+    normalized.approvalMode = policy.approvalMode;
+  }
+  if (typeof policy.timeoutMs === 'number' && Number.isFinite(policy.timeoutMs) && policy.timeoutMs > 0) {
+    normalized.timeoutMs = policy.timeoutMs;
+  }
+  if (typeof policy.screenshotAfterAction === 'boolean') {
+    normalized.screenshotAfterAction = policy.screenshotAfterAction;
+  }
+
+  return Object.keys(normalized).length ? normalized : undefined;
+}
+
+function normalizeLocalJobLimit(limit: unknown): number {
+  const numericLimit = typeof limit === 'number' ? limit : Number(limit);
+  if (!Number.isFinite(numericLimit) || numericLimit <= 0) return 25;
+  return Math.min(Math.floor(numericLimit), MAX_LOCAL_JOBS);
+}
+
+function normalizePromptResponse(
+  response: PromptResponse,
+  kind: 'approval' | 'secret' | 'text',
+): PromptResponse {
+  const input = response && typeof response === 'object' ? response : {};
+
+  if (kind === 'approval') {
+    const normalized: PromptResponse = { approved: Boolean(input.approved) };
+    if (['once', 'session', 'device'].includes(String(input.scope))) {
+      normalized.scope = input.scope as 'once' | 'session' | 'device';
+    }
+    return normalized;
+  }
+
+  if (kind === 'secret') {
+    return { secret: typeof input.secret === 'string' ? input.secret : '' };
+  }
+
+  return { value: typeof input.value === 'string' ? input.value : '' };
+}
+
+function summarizePromptResponse(response: PromptResponse): PromptResponse {
+  if (response.secret !== undefined) {
+    return { ...response, secret: '[redacted]' };
+  }
+  return response;
+}
+
+function pushLocalJobEvent(record: LocalDesktopJobRecord, event: LocalDesktopJobEvent): void {
+  record.updatedAt = event.timestamp;
+  record.events.push(event);
+  while (record.events.length > MAX_LOCAL_JOB_EVENTS) record.events.shift();
+}
+
+function cloneLocalJobRecord(record: LocalDesktopJobRecord): LocalDesktopJobRecord {
+  return JSON.parse(JSON.stringify(record)) as LocalDesktopJobRecord;
+}
+
+function normalizeSupportBundleLimit(limit: unknown): number {
+  const numericLimit = typeof limit === 'number' ? limit : Number(limit);
+  if (!Number.isFinite(numericLimit) || numericLimit <= 0) {
+    return DEFAULT_SUPPORT_BUNDLE_AUDIT_LIMIT;
+  }
+  return Math.min(Math.floor(numericLimit), 100);
+}
+
+function redactSupportAuditEntry(entry: AuditEntry): AuditEntry {
+  return {
+    ...entry,
+    deviceId: redactIdentifier(entry.deviceId),
+    jobId: redactIdentifier(entry.jobId),
+    ownerUserId: redactIdentifier(entry.ownerUserId),
+    targetDeviceId: redactIdentifier(entry.targetDeviceId),
+    chatId: redactIdentifier(entry.chatId),
+    target: redactSupportPath(entry.target),
+    error: redactSupportString(entry.error),
+  };
+}
+
+function redactIdentifier(value: string | undefined): string | undefined {
+  if (!value) return value;
+  if (value.length <= 10) return '[redacted]';
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function redactGatewayUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return redactSupportString(value) || 'unknown';
+  }
+}
+
+function redactSupportPath(value: string | undefined): string | undefined {
+  if (!value) return value;
+  const home = os.homedir();
+  let output = redactSupportString(value) || value;
+  if (home && output.startsWith(home)) {
+    output = `~${output.slice(home.length)}`;
+  }
+  return output.replace(/\/Users\/[^/]+/g, '/Users/[user]');
+}
+
+function redactSupportString(value: string | undefined): string | undefined {
+  if (typeof value !== 'string') return value;
+  const redacted = value
+    .replace(/(authorization\s*[:=]\s*bearer\s+)[^\s,;]+/gi, '$1[redacted]')
+    .replace(/((?:password|secret|token|credential|api[_-]?key|private[_-]?key)\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s,;]+)/gi, '$1[redacted]')
+    .replace(/([?&](?:password|secret|token|credential|api[_-]?key|private[_-]?key)=)[^&#\s]+/gi, '$1[redacted]');
+  return redacted.length > 2000 ? `${redacted.slice(0, 2000)}...` : redacted;
+}
+
+function isLocalJobScopedEvent(event: GatewayClientEvent): event is GatewayClientEvent & { jobId: string } {
+  return (
+    Boolean(event && typeof event === 'object') &&
+    'jobId' in event &&
+    typeof (event as { jobId?: unknown }).jobId === 'string'
+  );
+}
+
+function summarizeLocalJobArgs(args: unknown): unknown {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) return args;
+  return redactLocalValue(args, 0);
+}
+
+function redactLocalValue(value: unknown, depth: number): unknown {
+  if (depth > 4) return '[truncated]';
+  if (Array.isArray(value)) {
+    return value.slice(0, 25).map((item) => redactLocalValue(item, depth + 1));
+  }
+  if (!value || typeof value !== 'object') {
+    if (typeof value === 'string' && value.length > 500) return `${value.slice(0, 500)}...`;
+    return value;
+  }
+
+  const redacted: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (/password|secret|token|api[_-]?key|content|text/i.test(key)) {
+      redacted[key] = '[redacted]';
+    } else {
+      redacted[key] = redactLocalValue(child, depth + 1);
+    }
+  }
+  return redacted;
 }
 
 function sanitizeSettingsPatch(patch: Partial<DesktopAgentSettings>): Partial<DesktopAgentSettings> {

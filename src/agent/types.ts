@@ -118,6 +118,47 @@ export interface DesktopJob {
   signature?: JobSignature;
 }
 
+export interface LocalDesktopJobInput {
+  tool: string;
+  args?: unknown;
+  policy?: DesktopJob['policy'];
+}
+
+export interface LocalDesktopJobEvent {
+  timestamp: string;
+  type: GatewayClientEvent['type'];
+  message?: string;
+  payload?: unknown;
+}
+
+export interface LocalDesktopJobPrompt {
+  promptId: string;
+  kind: 'approval' | 'secret' | 'text';
+  message: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface LocalDesktopJobScreenshot {
+  receivedAt: string;
+  image: Extract<GatewayClientEvent, { type: 'job.screenshot' }>['image'];
+}
+
+export interface LocalDesktopJobRecord {
+  jobId: string;
+  tool: string;
+  args?: unknown;
+  policy?: DesktopJob['policy'];
+  status: 'running' | 'waiting_for_input' | 'completed' | 'failed' | 'cancelled';
+  createdAt: string;
+  updatedAt: string;
+  pendingPrompt?: LocalDesktopJobPrompt;
+  events: LocalDesktopJobEvent[];
+  screenshots: LocalDesktopJobScreenshot[];
+  result?: unknown;
+  error?: string;
+}
+
 export interface JobSignature {
   algorithm: 'hmac-sha256';
   signedAt: string;
@@ -168,6 +209,60 @@ export interface AuditInfo {
   entries: number;
   bytes: number;
   maxEntries: number;
+}
+
+export interface SupportBundle {
+  generatedAt: string;
+  appVersion: string;
+  platform: NodeJS.Platform;
+  arch: string;
+  status: {
+    connection: AgentConnectionStatus;
+    enabled: boolean;
+    launchAtLogin: boolean;
+    deviceId?: string;
+    displayName: string;
+    gatewayUrl: string;
+    ownerUserId?: string;
+    fileAccessMode: FileAccessMode;
+    allowedFolderCount: number;
+    allowedFolders: string[];
+    controlMode: ControlMode;
+    approvalMode: ApprovalMode;
+    allowShell: boolean;
+    permissions: PermissionStatus[];
+    lastError?: string;
+    lastConnectedAt?: string;
+    lastHeartbeatAt?: string;
+    reconnectAttempt: number;
+    nextReconnectAt?: string;
+    nextReconnectDelayMs?: number;
+    activeJobCount: number;
+    activeJobs: Array<Pick<ActiveJobSummary, 'jobId' | 'tool' | 'startedAt'>>;
+  };
+  checklist: SetupChecklist;
+  capabilities: {
+    count: number;
+    names: string[];
+    approvalRequired: number;
+    highRisk: number;
+    canRunUnattended: number;
+  };
+  audit: {
+    info: Omit<AuditInfo, 'path'> & { path: string };
+    recent: AuditEntry[];
+  };
+  localJobs: Array<{
+    jobId: string;
+    tool: string;
+    status: LocalDesktopJobRecord['status'];
+    createdAt: string;
+    updatedAt: string;
+    eventCount: number;
+    screenshotCount: number;
+    hasPendingPrompt: boolean;
+    error?: string;
+  }>;
 }
 
 export type GatewayClientEvent =

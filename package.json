@@ -1,7 +1,7 @@
 {
   "name": "client-intelligence",
   "productName": "Client Intelligence",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Client Intelligence desktop app for macOS",
   "main": "dist/main.js",
   "scripts": {
@@ -13,9 +13,10 @@
     "lint": "tsc --noEmit",
     "agent:mock-gateway": "node scripts/mock-agent-gateway.js",
     "agent:generate-contract": "npm run build && node scripts/generate-agent-contract.js",
-    "agent:verify": "npm run agent:verify-tools && npm run agent:verify-settings && npm run agent:verify-origin && npm run agent:verify-bridge && npm run agent:verify-audit && npm run agent:verify-approvals && npm run agent:verify-lifecycle && npm run agent:verify-capabilities && npm run agent:verify-pairing && npm run agent:verify-contract && npm run agent:verify-mock-gateway && npm run agent:verify-packaging",
+    "agent:verify": "npm run agent:verify-tools && npm run agent:verify-settings && npm run agent:verify-origin && npm run agent:verify-bridge && npm run agent:verify-local-jobs && npm run agent:verify-audit && npm run agent:verify-approvals && npm run agent:verify-lifecycle && npm run agent:verify-capabilities && npm run agent:verify-pairing && npm run agent:verify-contract && npm run agent:verify-mock-gateway && npm run agent:verify-packaging",
     "agent:verify-audit": "npm run build && node scripts/verify-audit-security.js",
     "agent:verify-bridge": "npm run build && node scripts/verify-bridge-security.js",
+    "agent:verify-local-jobs": "npm run build && node scripts/verify-local-jobs.js",
     "agent:verify-capabilities": "npm run build && node scripts/verify-capabilities.js",
     "agent:verify-contract": "npm run build && node scripts/generate-agent-contract.js --check",
     "agent:verify-settings": "npm run build && node scripts/verify-settings-security.js",
@@ -46,12 +47,15 @@
       "build/**/*",
       "src/offline.html",
       "src/loading.html",
-      "src/onboarding.html"
+      "src/onboarding.html",
+      "src/agent-control.html"
     ],
     "protocols": [
       {
         "name": "Client Intelligence",
-        "schemes": ["clientintelligence"]
+        "schemes": [
+          "clientintelligence"
+        ]
       }
     ],
     "mac": {
@@ -70,6 +74,7 @@
       "extendInfo": {
         "NSAppleEventsUsageDescription": "Client Intelligence needs permission to automate apps only when you ask the desktop agent to control them.",
         "NSAccessibilityUsageDescription": "Client Intelligence needs accessibility permission only when you ask the desktop agent to use keyboard, mouse, or app focus controls.",
+        "NSMicrophoneUsageDescription": "Client Intelligence needs microphone permission when you use voice mode to dictate messages.",
         "NSScreenCaptureUsageDescription": "Client Intelligence needs screen recording permission to send screenshots back to your chat.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false,

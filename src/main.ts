@@ -12,6 +12,7 @@ import {
 } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { fileURLToPath } from 'url';
 import { initUpdater, checkForUpdates } from './updater';
 import { initCrashReporter } from './crash-reporter';
 import { initTelemetry, trackEvent, isTelemetryEnabled, setTelemetryEnabled } from './telemetry';
@@ -51,6 +52,7 @@ if (!gotSingleInstanceLock) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let agentControlWindow: BrowserWindow | null = null;
 let desktopAgent: DesktopAgentService | null = null;
 let agentTray: Tray | null = null;
 let lastNotifiedActiveJobCount: number | undefined;
@@ -253,6 +255,25 @@ function isTrustedPermissionOrigin(url?: string): boolean {
   return Boolean(url && isTrustedAppURL(url, TRUSTED_APP_HOSTS));
 }
 
+function getAgentControlPath(): string {
+  return path.join(__dirname, '..', 'src', 'agent-control.html');
+}
+
+function isLocalAgentControlURL(url?: string): boolean {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'file:') return false;
+    return path.resolve(fileURLToPath(parsed)) === path.resolve(getAgentControlPath());
+  } catch {
+    return false;
+  }
+}
+
+function isTrustedAgentIpcOrigin(url?: string): boolean {
+  return isTrustedPermissionOrigin(url) || isLocalAgentControlURL(url);
+}
+
 function isTrustedOAuthURL(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -275,6 +296,54 @@ function configureSessionSecurity(): void {
     const requestUrl = requestingOrigin || webContents?.getURL();
     return ALLOWED_APP_PERMISSIONS.has(permission) && isTrustedPermissionOrigin(requestUrl);
   });
+}
+
+function openAgentControlCenter(): void {
+  const controlPath = getAgentControlPath();
+  if (!fs.existsSync(controlPath)) return;
+
+  if (agentControlWindow && !agentControlWindow.isDestroyed()) {
+    if (agentControlWindow.isMinimized()) agentControlWindow.restore();
+    agentControlWindow.show();
+    agentControlWindow.focus();
+    return;
+  }
+
+  agentControlWindow = new BrowserWindow({
+    width: 1280,
+    height: 860,
+    minWidth: 980,
+    minHeight: 680,
+    title: 'Agent Control Center',
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      preload: path.join(__dirname, 'preload.js'),
+    },
+  });
+
+  agentControlWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  agentControlWindow.webContents.on('will-navigate', (event, url) => {
+    if (isLocalAgentControlURL(url)) return;
+    event.preventDefault();
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url);
+    }
+  });
+
+  agentControlWindow.on('closed', () => {
+    agentControlWindow = null;
+  });
+
+  agentControlWindow.loadFile(controlPath);
 }
 
 function createMenu(): void {
@@ -339,6 +408,11 @@ function createMenu(): void {
     {
       label: 'Desktop Agent',
       submenu: [
+        {
+          label: 'Open Agent Control Center',
+          click: () => openAgentControlCenter(),
+        },
+        { type: 'separator' },
         {
           label: 'Connect Agent',
           click: () => desktopAgent?.connect(),
@@ -439,6 +513,10 @@ async function updateAgentTray(): Promise<void> {
         mainWindow.show();
         mainWindow.focus();
       },
+    },
+    {
+      label: 'Open Agent Control Center',
+      click: () => openAgentControlCenter(),
     },
     {
       label: status.enabled ? 'Kill Switch: Disconnect Agent' : 'Connect Agent',
@@ -807,7 +885,7 @@ app.on('ready', () => {
   applyUpdateChannel(channel);
   initUpdateChannelIpc();
   desktopAgent = new DesktopAgentService();
-  initAgentIpc(desktopAgent, isTrustedPermissionOrigin);
+  initAgentIpc(desktopAgent, isTrustedAgentIpcOrigin, openAgentControlCenter);
   desktopAgent.start();
   configureSessionSecurity();
   createMenu();

@@ -1,0 +1,1368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Control Center</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f4f7fb;
+      --muted: #9aa7b8;
+      --quiet: #6d7a8e;
+      --line: #273244;
+      --panel: #111820;
+      --panel-2: #151f2a;
+      --base: #080d12;
+      --field: #0b1219;
+      --amber: #d8ad4c;
+      --cyan: #58bfd2;
+      --green: #6cc483;
+      --red: #e36d6d;
+      --violet: #9c8cff;
+      --shadow: rgba(0, 0, 0, 0.32);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--base);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      letter-spacing: 0;
+    }
+
+    button, input, select, textarea {
+      font: inherit;
+    }
+
+    button {
+      align-items: center;
+      background: #172231;
+      border: 1px solid #324156;
+      border-radius: 6px;
+      color: var(--ink);
+      cursor: pointer;
+      display: inline-flex;
+      font-weight: 650;
+      gap: 6px;
+      justify-content: center;
+      min-height: 30px;
+      padding: 6px 10px;
+    }
+
+    button:hover { border-color: #536681; }
+    button:active { transform: translateY(1px); }
+    button:disabled {
+      color: #667386;
+      cursor: not-allowed;
+      opacity: 0.62;
+      transform: none;
+    }
+
+    .primary {
+      background: #c69b42;
+      border-color: #deb75b;
+      color: #081018;
+    }
+
+    .danger {
+      background: #3a171b;
+      border-color: #8f3b41;
+      color: #ffd8dc;
+    }
+
+    .ghost {
+      background: transparent;
+      border-color: var(--line);
+      color: var(--muted);
+    }
+
+    input, select, textarea {
+      background: var(--field);
+      border: 1px solid #2a3547;
+      border-radius: 6px;
+      color: var(--ink);
+      min-height: 30px;
+      outline: none;
+      padding: 7px 9px;
+      width: 100%;
+    }
+
+    textarea {
+      min-height: 92px;
+      resize: vertical;
+    }
+
+    input:focus, select:focus, textarea:focus, button:focus-visible {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 2px rgba(88, 191, 210, 0.18);
+    }
+
+    label {
+      color: var(--muted);
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+    }
+
+    code {
+      color: #c9d7e8;
+      font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .topbar {
+      align-items: center;
+      background: #0b1118;
+      border-bottom: 1px solid #202a39;
+      display: grid;
+      gap: 16px;
+      grid-template-columns: minmax(210px, 1fr) auto auto;
+      min-height: 70px;
+      padding: 14px 18px;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+    }
+
+    .brand {
+      display: grid;
+      gap: 3px;
+    }
+
+    .brand h1 {
+      font-size: 19px;
+      line-height: 1.1;
+      margin: 0;
+    }
+
+    .brand span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      justify-content: flex-end;
+    }
+
+    .pill {
+      align-items: center;
+      border: 1px solid #2b3749;
+      border-radius: 999px;
+      color: var(--muted);
+      display: inline-flex;
+      gap: 6px;
+      min-height: 26px;
+      padding: 4px 9px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      background: var(--quiet);
+      border-radius: 50%;
+      height: 7px;
+      width: 7px;
+    }
+
+    .ready .dot { background: var(--green); }
+    .warn .dot { background: var(--amber); }
+    .bad .dot { background: var(--red); }
+    .info .dot { background: var(--cyan); }
+
+    .shell {
+      display: grid;
+      gap: 0;
+      grid-template-columns: 310px minmax(420px, 1fr) 370px;
+      min-height: calc(100vh - 70px);
+    }
+
+    .column {
+      border-right: 1px solid #202a39;
+      min-width: 0;
+      padding: 16px;
+    }
+
+    .column:last-child {
+      border-right: 0;
+    }
+
+    .left {
+      background: #0a1017;
+    }
+
+    .center {
+      background: #0c1219;
+    }
+
+    .right {
+      background: #090e14;
+    }
+
+    .section {
+      border-bottom: 1px solid #202a39;
+      margin: 0 -16px 16px;
+      padding: 0 16px 16px;
+    }
+
+    .section:last-child {
+      border-bottom: 0;
+      margin-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .section-title {
+      align-items: center;
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .section-title h2 {
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      margin: 0;
+      text-transform: uppercase;
+    }
+
+    .stack { display: grid; gap: 10px; }
+    .row { align-items: center; display: flex; gap: 8px; min-width: 0; }
+    .wrap { flex-wrap: wrap; }
+    .spread { justify-content: space-between; }
+    .two { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
+    .three { display: grid; gap: 8px; grid-template-columns: 1fr 1fr 1fr; }
+
+    .toggle-line {
+      align-items: center;
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+    }
+
+    .toggle-line span {
+      color: var(--ink);
+      font-weight: 650;
+    }
+
+    .toggle-line input {
+      min-height: 18px;
+      width: 18px;
+    }
+
+    .checklist, .folders, .audit-list, .job-list, .event-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .line-item {
+      background: #0e151e;
+      border: 1px solid #222d3c;
+      border-radius: 6px;
+      display: grid;
+      gap: 5px;
+      padding: 9px;
+    }
+
+    .line-item strong {
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .line-item small {
+      color: var(--muted);
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .status-row {
+      align-items: center;
+      display: flex;
+      gap: 7px;
+      justify-content: space-between;
+    }
+
+    .status-tag {
+      border: 1px solid #334258;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 11px;
+      padding: 2px 7px;
+      white-space: nowrap;
+    }
+
+    .status-ready { border-color: rgba(108, 196, 131, 0.5); color: #a9e5b8; }
+    .status-needs_action, .status-waiting_for_input { border-color: rgba(216, 173, 76, 0.6); color: #f0d395; }
+    .status-disabled, .status-failed, .status-cancelled { border-color: rgba(227, 109, 109, 0.58); color: #f4aaaa; }
+    .status-completed { border-color: rgba(88, 191, 210, 0.55); color: #a9eaf4; }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-bottom: 14px;
+    }
+
+    .tab {
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .tab.active {
+      background: #162536;
+      border-color: var(--cyan);
+      color: var(--ink);
+    }
+
+    .tool-panel {
+      display: none;
+    }
+
+    .tool-panel.active {
+      display: grid;
+      gap: 16px;
+    }
+
+    .tool-group {
+      background: var(--panel);
+      border: 1px solid #222e3e;
+      border-radius: 8px;
+      box-shadow: 0 14px 32px var(--shadow);
+      display: grid;
+      gap: 10px;
+      padding: 13px;
+    }
+
+    .tool-group h3 {
+      font-size: 14px;
+      margin: 0;
+    }
+
+    .tool-grid {
+      display: grid;
+      gap: 8px;
+      grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+    }
+
+    .screenshot-frame {
+      align-items: center;
+      background: #05080c;
+      border: 1px solid #222d3c;
+      border-radius: 8px;
+      display: grid;
+      justify-items: center;
+      min-height: 220px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .screenshot-frame img {
+      display: block;
+      max-height: 440px;
+      max-width: 100%;
+      object-fit: contain;
+    }
+
+    .empty {
+      color: var(--quiet);
+      padding: 18px;
+      text-align: center;
+    }
+
+    .job {
+      background: #0f151d;
+      border: 1px solid #243247;
+      border-radius: 7px;
+      cursor: pointer;
+      display: grid;
+      gap: 6px;
+      padding: 10px;
+    }
+
+    .job.selected {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 1px rgba(88, 191, 210, 0.18);
+    }
+
+    .job strong {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .job-meta {
+      color: var(--muted);
+      display: flex;
+      font-size: 11px;
+      gap: 7px;
+      justify-content: space-between;
+    }
+
+    .prompt {
+      background: #211a0f;
+      border: 1px solid rgba(216, 173, 76, 0.46);
+      border-radius: 8px;
+      display: grid;
+      gap: 9px;
+      padding: 11px;
+    }
+
+    .result-box {
+      background: #060a0f;
+      border: 1px solid #202a39;
+      border-radius: 8px;
+      color: #c7d4e5;
+      font-family: "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+      font-size: 11px;
+      line-height: 1.45;
+      margin: 0;
+      max-height: 310px;
+      overflow: auto;
+      padding: 10px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .banner {
+      background: #221217;
+      border: 1px solid #7d333c;
+      border-radius: 7px;
+      color: #ffd7dc;
+      display: none;
+      margin-bottom: 12px;
+      padding: 9px 10px;
+    }
+
+    .banner.visible {
+      display: block;
+    }
+
+    .fine {
+      color: var(--quiet);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+
+    @media (max-width: 1120px) {
+      .topbar {
+        grid-template-columns: 1fr;
+      }
+      .pills {
+        justify-content: flex-start;
+      }
+      .shell {
+        grid-template-columns: 1fr;
+      }
+      .column {
+        border-bottom: 1px solid #202a39;
+        border-right: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>Agent Control Center</h1>
+      <span id="statusMeta">Loading local desktop agent</span>
+    </div>
+    <div class="pills">
+      <span class="pill" id="connectionPill"><span class="dot"></span><span>Connection</span></span>
+      <span class="pill" id="enabledPill"><span class="dot"></span><span>Agent</span></span>
+      <span class="pill" id="pairingPill"><span class="dot"></span><span>Pairing</span></span>
+      <span class="pill" id="activePill"><span class="dot"></span><span>Jobs</span></span>
+    </div>
+    <div class="row">
+      <button id="copyDiagnosticsButton" class="ghost" type="button">Copy diagnostics</button>
+      <button id="refreshButton" class="ghost" type="button">Refresh</button>
+      <button id="killSwitchButton" class="danger" type="button">Kill switch</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <aside class="column left">
+      <div id="errorBanner" class="banner"></div>
+
+      <section class="section">
+        <div class="section-title">
+          <h2>Setup</h2>
+          <button id="connectButton" class="primary" type="button">Enable</button>
+        </div>
+        <div class="stack">
+          <label>Display name
+            <input id="displayNameInput" type="text" autocomplete="off">
+          </label>
+          <div class="two">
+            <label>Owner
+              <input id="ownerInput" type="text" autocomplete="off" placeholder="josh-local">
+            </label>
+            <label>Pairing token
+              <input id="pairingTokenInput" type="password" autocomplete="off">
+            </label>
+          </div>
+          <div class="row wrap">
+            <button id="pairButton" type="button">Pair</button>
+            <button id="revokeButton" class="danger" type="button">Revoke</button>
+          </div>
+          <label>Gateway
+            <input id="gatewayInput" type="text" autocomplete="off">
+          </label>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title"><h2>Controls</h2></div>
+        <div class="stack">
+          <label class="toggle-line"><span>Launch at login</span><input id="launchAtLoginInput" type="checkbox"></label>
+          <label class="toggle-line"><span>Shell</span><input id="allowShellInput" type="checkbox"></label>
+          <label>File access
+            <select id="fileAccessModeSelect">
+              <option value="none">None</option>
+              <option value="selected_folders">Selected folders</option>
+              <option value="full_disk">Full disk</option>
+            </select>
+          </label>
+          <label>Control mode
+            <select id="controlModeSelect">
+              <option value="disabled">Disabled</option>
+              <option value="open_apps">Open apps</option>
+              <option value="screen">Screen</option>
+              <option value="keyboard_mouse">Keyboard and mouse</option>
+              <option value="automation">Automation</option>
+            </select>
+          </label>
+          <label>Approval mode
+            <select id="approvalModeSelect">
+              <option value="ask_every_time">Ask every time</option>
+              <option value="session">Session</option>
+              <option value="device">Device</option>
+              <option value="always_for_owner">Owner low risk</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-title">
+          <h2>Folders</h2>
+          <button id="chooseFolderButton" type="button">Choose</button>
+        </div>
+        <div class="row wrap">
+          <button id="clearFoldersButton" class="ghost" type="button">Clear</button>
+        </div>
+        <div id="foldersList" class="folders"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-title"><h2>Permissions</h2></div>
+        <div id="permissionsList" class="checklist"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-title"><h2>Readiness</h2></div>
+        <div id="checklist" class="checklist"></div>
+      </section>
+    </aside>
+
+    <section class="column center">
+      <div class="tabs" role="tablist">
+        <button class="tab active" type="button" data-tab="overview">Overview</button>
+        <button class="tab" type="button" data-tab="files">Files</button>
+        <button class="tab" type="button" data-tab="desktop">Desktop</button>
+        <button class="tab" type="button" data-tab="sensitive">Sensitive</button>
+        <button class="tab" type="button" data-tab="advanced">Advanced</button>
+      </div>
+
+      <div id="overview" class="tool-panel active">
+        <div class="tool-group">
+          <h3>System</h3>
+          <div class="tool-grid">
+            <button type="button" data-job="system.info">System info</button>
+            <button type="button" data-job="system.storage">Storage</button>
+            <button type="button" data-job="system.network">Network</button>
+            <button type="button" data-job="apps.frontmost">Frontmost app</button>
+          </div>
+          <label>Storage path
+            <input id="storagePathInput" type="text" value="/">
+          </label>
+        </div>
+
+        <div class="tool-group">
+          <h3>Browser</h3>
+          <div class="two">
+            <label>URL
+              <input id="browserUrlInput" type="url" value="https://clientintelligence.ai">
+            </label>
+            <label>Browser
+              <select id="browserNameSelect">
+                <option value="">Default</option>
+                <option value="chrome">Chrome</option>
+                <option value="safari">Safari</option>
+                <option value="arc">Arc</option>
+                <option value="brave">Brave</option>
+                <option value="edge">Edge</option>
+                <option value="firefox">Firefox</option>
+              </select>
+            </label>
+          </div>
+          <button type="button" id="browserOpenButton">Open URL</button>
+        </div>
+
+        <div class="tool-group">
+          <h3>Job policy</h3>
+          <div class="three">
+            <label>Timeout ms
+              <input id="timeoutInput" type="number" min="1000" step="1000" value="120000">
+            </label>
+            <label class="toggle-line"><span>Screenshot after action</span><input id="screenshotAfterInput" type="checkbox"></label>
+            <label>Prompt scope
+              <select id="jobApprovalModeSelect">
+                <option value="">Use setting</option>
+                <option value="ask_every_time">Ask every time</option>
+                <option value="session">Session</option>
+                <option value="device">Device</option>
+                <option value="always_for_owner">Owner low risk</option>
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div id="files" class="tool-panel">
+        <div class="tool-group">
+          <h3>Scoped files</h3>
+          <label>Path
+            <input id="filePathInput" type="text" autocomplete="off">
+          </label>
+          <div class="two">
+            <label>Search
+              <input id="fileQueryInput" type="text" value="proposal">
+            </label>
+            <label>Limit
+              <input id="fileLimitInput" type="number" min="1" value="25">
+            </label>
+          </div>
+          <label>Write content
+            <textarea id="fileContentInput">Local Level 1 write test</textarea>
+          </label>
+          <div class="tool-grid">
+            <button type="button" data-file-job="files.stat">Stat</button>
+            <button type="button" data-file-job="files.list">List</button>
+            <button type="button" data-file-job="files.search">Search</button>
+            <button type="button" data-file-job="files.read">Read</button>
+            <button type="button" data-file-job="files.write">Write</button>
+            <button type="button" data-file-job="files.open">Open</button>
+            <button type="button" data-file-job="files.reveal">Reveal</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="desktop" class="tool-panel">
+        <div class="tool-group">
+          <h3>Apps</h3>
+          <div class="two">
+            <label>App name
+              <input id="appNameInput" type="text" value="Finder" autocomplete="off">
+            </label>
+            <label>App path
+              <input id="appPathInput" type="text" autocomplete="off">
+            </label>
+          </div>
+          <div class="tool-grid">
+            <button type="button" data-app-job="apps.list">List apps</button>
+            <button type="button" data-app-job="apps.frontmost">Frontmost</button>
+            <button type="button" data-app-job="apps.open">Open</button>
+            <button type="button" data-app-job="apps.activate">Activate</button>
+          </div>
+        </div>
+
+        <div class="tool-group">
+          <h3>Screen</h3>
+          <div class="three">
+            <label>Width
+              <input id="screenWidthInput" type="number" min="100" value="1280">
+            </label>
+            <label>Height
+              <input id="screenHeightInput" type="number" min="100" value="800">
+            </label>
+            <label>Interval ms
+              <input id="streamIntervalInput" type="number" min="1000" value="2500">
+            </label>
+          </div>
+          <label>Source id
+            <input id="screenSourceInput" type="text" autocomplete="off">
+          </label>
+          <div class="tool-grid">
+            <button type="button" id="screenSourcesButton">Sources</button>
+            <button type="button" id="screenshotButton">Screenshot</button>
+            <button type="button" id="streamButton">Stream</button>
+          </div>
+          <div class="screenshot-frame" id="screenshotFrame">
+            <div class="empty">No screenshot</div>
+          </div>
+        </div>
+
+        <div class="tool-group">
+          <h3>Input</h3>
+          <div class="three">
+            <label>X
+              <input id="inputXInput" type="number" value="100">
+            </label>
+            <label>Y
+              <input id="inputYInput" type="number" value="100">
+            </label>
+            <label>Expected app
+              <input id="expectedAppInput" type="text" autocomplete="off">
+            </label>
+          </div>
+          <div class="two">
+            <label>Text
+              <input id="typeTextInput" type="text" value="Hello from Client Intelligence">
+            </label>
+            <label>Key
+              <input id="keyInput" type="text" value="return">
+            </label>
+          </div>
+          <label>Modifiers
+            <input id="modifiersInput" type="text" placeholder="meta,shift">
+          </label>
+          <div class="tool-grid">
+            <button type="button" id="clickButton">Click</button>
+            <button type="button" id="typeButton">Type</button>
+            <button type="button" id="hotkeyButton">Hotkey</button>
+            <button type="button" id="pressKeyButton">Press key</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="sensitive" class="tool-panel">
+        <div class="tool-group">
+          <h3>Clipboard</h3>
+          <label>Clipboard text
+            <textarea id="clipboardTextInput">Client Intelligence clipboard test</textarea>
+          </label>
+          <div class="tool-grid">
+            <button type="button" id="clipboardReadButton">Read clipboard</button>
+            <button type="button" id="clipboardWriteButton">Write clipboard</button>
+          </div>
+        </div>
+
+        <div class="tool-group">
+          <h3>Secrets</h3>
+          <div class="two">
+            <label>Name
+              <input id="secretNameInput" type="text" value="level1-local-test" autocomplete="off">
+            </label>
+            <label>Secret
+              <input id="secretValueInput" type="password" autocomplete="off">
+            </label>
+          </div>
+          <div class="tool-grid">
+            <button type="button" id="secretSaveButton">Save</button>
+            <button type="button" id="secretExistsButton">Exists</button>
+            <button type="button" id="secretDeleteButton">Delete</button>
+            <button type="button" id="secretFillButton">Fill focused field</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="advanced" class="tool-panel">
+        <div class="tool-group">
+          <h3>AppleScript</h3>
+          <textarea id="appleScriptInput">tell application "Finder" to get name of front window</textarea>
+          <button type="button" id="appleScriptButton">Run AppleScript</button>
+        </div>
+
+        <div class="tool-group">
+          <h3>Shell</h3>
+          <div class="two">
+            <label>Command
+              <input id="shellCommandInput" type="text" value="pwd" autocomplete="off">
+            </label>
+            <label>CWD
+              <input id="shellCwdInput" type="text" autocomplete="off">
+            </label>
+          </div>
+          <label>Args
+            <input id="shellArgsInput" type="text" autocomplete="off" placeholder="-la">
+          </label>
+          <button type="button" id="shellButton">Run shell</button>
+        </div>
+      </div>
+    </section>
+
+    <aside class="column right">
+      <section class="section">
+        <div class="section-title">
+          <h2>Local jobs</h2>
+          <button id="refreshJobsButton" class="ghost" type="button">Refresh</button>
+        </div>
+        <div id="jobsList" class="job-list"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-title"><h2>Prompt</h2></div>
+        <div id="promptPanel" class="stack"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-title"><h2>Result</h2></div>
+        <pre id="resultBox" class="result-box">No job selected</pre>
+      </section>
+
+      <section class="section">
+        <div class="section-title">
+          <h2>Audit</h2>
+          <button id="clearAuditButton" class="ghost" type="button">Clear</button>
+        </div>
+        <div id="auditInfo" class="fine"></div>
+        <div id="auditList" class="audit-list"></div>
+      </section>
+    </aside>
+  </main>
+
+  <script>
+    const api = window.clientIntelligenceDesktop;
+    const agent = api && api.agent;
+
+    const state = {
+      status: null,
+      checklist: null,
+      jobs: [],
+      selectedJobId: null,
+      audit: [],
+      auditInfo: null,
+      latestScreenshot: null,
+      refreshTimer: null,
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function showError(error) {
+      const banner = $('errorBanner');
+      const message = error instanceof Error ? error.message : String(error || '');
+      banner.textContent = message;
+      banner.classList.toggle('visible', Boolean(message));
+      if (message) window.setTimeout(() => banner.classList.remove('visible'), 7000);
+    }
+
+    function statusClass(value) {
+      if (['ready', 'granted', 'connected', 'completed'].includes(value)) return 'ready';
+      if (['needs_action', 'not_determined', 'unknown', 'connecting', 'waiting_for_input'].includes(value)) return 'warn';
+      if (['denied', 'disabled', 'error', 'failed', 'cancelled'].includes(value)) return 'bad';
+      return 'info';
+    }
+
+    function setPill(id, label, value) {
+      const pill = $(id);
+      pill.className = 'pill ' + statusClass(value);
+      pill.querySelector('span:last-child').textContent = label;
+    }
+
+    function json(value) {
+      return JSON.stringify(value, null, 2);
+    }
+
+    function preserveSetValue(element, value) {
+      if (!element || document.activeElement === element) return;
+      element.value = value == null ? '' : String(value);
+    }
+
+    function preserveSetChecked(element, checked) {
+      if (!element || document.activeElement === element) return;
+      element.checked = Boolean(checked);
+    }
+
+    function selectedJob() {
+      return state.jobs.find((job) => job.jobId === state.selectedJobId) || state.jobs[0] || null;
+    }
+
+    async function refresh() {
+      if (!agent) {
+        showError('Desktop agent bridge is unavailable');
+        return;
+      }
+
+      try {
+        const [status, checklist, jobs, audit, auditInfo] = await Promise.all([
+          agent.getStatus(),
+          agent.getSetupChecklist(),
+          agent.getLocalDesktopJobs(30),
+          agent.getAudit(20),
+          agent.getAuditInfo(),
+        ]);
+        state.status = status;
+        state.checklist = checklist;
+        state.jobs = jobs || [];
+        state.audit = audit || [];
+        state.auditInfo = auditInfo;
+        if (state.selectedJobId && !state.jobs.some((job) => job.jobId === state.selectedJobId)) {
+          state.selectedJobId = null;
+        }
+        render();
+      } catch (error) {
+        showError(error);
+      }
+    }
+
+    function render() {
+      const status = state.status;
+      if (!status) return;
+
+      setPill('connectionPill', status.connection, status.connection);
+      setPill('enabledPill', status.enabled ? 'enabled' : 'disabled', status.enabled ? 'ready' : 'disabled');
+      setPill('pairingPill', status.deviceId ? 'paired' : 'unpaired', status.deviceId ? 'ready' : 'needs_action');
+      setPill('activePill', `${status.activeJobIds.length} active`, status.activeJobIds.length ? 'waiting_for_input' : 'ready');
+
+      $('statusMeta').textContent = [
+        status.displayName,
+        status.ownerUserId || 'no owner',
+        status.deviceId || 'no device',
+      ].join(' / ');
+
+      $('connectButton').textContent = status.enabled ? 'Disable' : 'Enable';
+      preserveSetValue($('displayNameInput'), status.displayName);
+      preserveSetValue($('gatewayInput'), status.gatewayUrl);
+      preserveSetValue($('ownerInput'), status.ownerUserId || 'josh-local');
+      preserveSetChecked($('launchAtLoginInput'), status.launchAtLogin);
+      preserveSetChecked($('allowShellInput'), status.allowShell);
+      preserveSetValue($('fileAccessModeSelect'), status.fileAccessMode);
+      preserveSetValue($('controlModeSelect'), status.controlMode);
+      preserveSetValue($('approvalModeSelect'), status.approvalMode);
+
+      renderFolders(status.allowedFolders || []);
+      renderPermissions(status.permissions || []);
+      renderChecklist((state.checklist && state.checklist.items) || []);
+      renderJobs();
+      renderPrompt();
+      renderResult();
+      renderAudit();
+      renderScreenshot();
+    }
+
+    function renderFolders(folders) {
+      const root = $('foldersList');
+      if (!folders.length) {
+        root.innerHTML = '<div class="empty">No selected folders</div>';
+        return;
+      }
+      root.innerHTML = folders.map((folder) => `
+        <div class="line-item">
+          <div class="status-row">
+            <strong>${escapeHtml(folder)}</strong>
+            <button class="ghost" type="button" data-remove-folder="${escapeAttr(folder)}">Remove</button>
+          </div>
+        </div>
+      `).join('');
+      root.querySelectorAll('[data-remove-folder]').forEach((button) => {
+        button.addEventListener('click', () => runAction(() => agent.removeAllowedFolder(button.dataset.removeFolder)));
+      });
+    }
+
+    function renderPermissions(permissions) {
+      const root = $('permissionsList');
+      root.innerHTML = permissions.map((permission) => `
+        <div class="line-item">
+          <div class="status-row">
+            <strong>${labelFor(permission.name)}</strong>
+            <span class="status-tag status-${permission.status}">${permission.status}</span>
+          </div>
+          ${permission.detail ? `<small>${escapeHtml(permission.detail)}</small>` : ''}
+          <button type="button" data-permission="${permission.name}">Open settings</button>
+        </div>
+      `).join('');
+      root.querySelectorAll('[data-permission]').forEach((button) => {
+        button.addEventListener('click', () => runAction(() => agent.openPermissionSettings(button.dataset.permission)));
+      });
+    }
+
+    function renderChecklist(items) {
+      const root = $('checklist');
+      root.innerHTML = items.map((item) => `
+        <div class="line-item">
+          <div class="status-row">
+            <strong>${escapeHtml(item.label)}</strong>
+            <span class="status-tag status-${item.status}">${item.status}</span>
+          </div>
+          <small>${escapeHtml(item.detail || '')}</small>
+        </div>
+      `).join('');
+    }
+
+    function renderJobs() {
+      const root = $('jobsList');
+      if (!state.jobs.length) {
+        root.innerHTML = '<div class="empty">No local jobs</div>';
+        return;
+      }
+      const selected = selectedJob();
+      root.innerHTML = state.jobs.map((job) => `
+        <div class="job ${selected && selected.jobId === job.jobId ? 'selected' : ''}" data-job-id="${job.jobId}">
+          <div class="status-row">
+            <strong>${escapeHtml(job.tool)}</strong>
+            <span class="status-tag status-${job.status}">${job.status}</span>
+          </div>
+          <div class="job-meta">
+            <span>${new Date(job.createdAt).toLocaleTimeString()}</span>
+            <span>${job.events.length} events</span>
+          </div>
+        </div>
+      `).join('');
+      root.querySelectorAll('[data-job-id]').forEach((item) => {
+        item.addEventListener('click', () => {
+          state.selectedJobId = item.dataset.jobId;
+          render();
+        });
+      });
+    }
+
+    function renderPrompt() {
+      const root = $('promptPanel');
+      const job = selectedJob();
+      if (!job || !job.pendingPrompt) {
+        root.innerHTML = '<div class="empty">No pending prompt</div>';
+        return;
+      }
+
+      const prompt = job.pendingPrompt;
+      if (prompt.kind === 'approval') {
+        root.innerHTML = `
+          <div class="prompt">
+            <strong>${escapeHtml(prompt.message)}</strong>
+            <pre class="result-box">${escapeHtml(json(prompt.metadata || {}))}</pre>
+            <div class="row wrap">
+              <button class="primary" type="button" data-approve="once">Approve once</button>
+              <button type="button" data-approve="session">Session</button>
+              <button type="button" data-approve="device">Device</button>
+              <button class="danger" type="button" data-deny="true">Deny</button>
+            </div>
+          </div>
+        `;
+        root.querySelectorAll('[data-approve]').forEach((button) => {
+          button.addEventListener('click', () => respondToPrompt(job, { approved: true, scope: button.dataset.approve }));
+        });
+        root.querySelector('[data-deny]').addEventListener('click', () => respondToPrompt(job, { approved: false, scope: 'once' }));
+        return;
+      }
+
+      const fieldType = prompt.kind === 'secret' ? 'password' : 'text';
+      root.innerHTML = `
+        <div class="prompt">
+          <strong>${escapeHtml(prompt.message)}</strong>
+          <input id="promptValueInput" type="${fieldType}" autocomplete="off">
+          <button class="primary" type="button" id="promptSubmitButton">Submit</button>
+        </div>
+      `;
+      $('promptSubmitButton').addEventListener('click', () => {
+        const value = $('promptValueInput').value;
+        respondToPrompt(job, prompt.kind === 'secret' ? { secret: value } : { value });
+      });
+    }
+
+    function renderResult() {
+      const job = selectedJob();
+      if (!job) {
+        $('resultBox').textContent = 'No job selected';
+        return;
+      }
+      $('resultBox').textContent = json({
+        jobId: job.jobId,
+        tool: job.tool,
+        status: job.status,
+        args: job.args,
+        policy: job.policy,
+        result: job.result,
+        error: job.error,
+        events: job.events,
+      });
+    }
+
+    function renderAudit() {
+      $('auditInfo').textContent = state.auditInfo
+        ? `${state.auditInfo.entries} entries / ${state.auditInfo.bytes} bytes`
+        : '';
+      const root = $('auditList');
+      if (!state.audit.length) {
+        root.innerHTML = '<div class="empty">No audit entries</div>';
+        return;
+      }
+      root.innerHTML = state.audit.slice().reverse().map((entry) => `
+        <div class="line-item">
+          <div class="status-row">
+            <strong>${escapeHtml(entry.action)}</strong>
+            <span class="status-tag status-${entry.result}">${entry.result}</span>
+          </div>
+          <small>${escapeHtml([entry.tool, entry.target, entry.error].filter(Boolean).join(' / '))}</small>
+        </div>
+      `).join('');
+    }
+
+    function renderScreenshot() {
+      const job = selectedJob();
+      const screenshot = job && job.screenshots && job.screenshots.length
+        ? job.screenshots[job.screenshots.length - 1]
+        : findLatestScreenshot();
+      state.latestScreenshot = screenshot || null;
+      const frame = $('screenshotFrame');
+      if (!screenshot || !screenshot.image || !screenshot.image.data) {
+        frame.innerHTML = '<div class="empty">No screenshot</div>';
+        return;
+      }
+      frame.innerHTML = `<img id="latestScreenshotImage" alt="Latest screenshot" src="data:${screenshot.image.mimeType};base64,${screenshot.image.data}">`;
+      $('latestScreenshotImage').addEventListener('click', handleScreenshotClick);
+    }
+
+    function findLatestScreenshot() {
+      for (const job of state.jobs) {
+        if (job.screenshots && job.screenshots.length) return job.screenshots[job.screenshots.length - 1];
+      }
+      return null;
+    }
+
+    function handleScreenshotClick(event) {
+      const screenshot = state.latestScreenshot && state.latestScreenshot.image;
+      if (!screenshot) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      const imageWidth = screenshot.width || event.currentTarget.naturalWidth || rect.width;
+      const imageHeight = screenshot.height || event.currentTarget.naturalHeight || rect.height;
+      const localX = ((event.clientX - rect.left) / rect.width) * imageWidth;
+      const localY = ((event.clientY - rect.top) / rect.height) * imageHeight;
+      const bounds = screenshot.bounds;
+      const x = bounds ? Math.round(bounds.x + ((localX / imageWidth) * bounds.width)) : Math.round(localX);
+      const y = bounds ? Math.round(bounds.y + ((localY / imageHeight) * bounds.height)) : Math.round(localY);
+      $('inputXInput').value = String(x);
+      $('inputYInput').value = String(y);
+      runJob('input.click', inputArgs({ x, y }));
+    }
+
+    async function respondToPrompt(job, response) {
+      await runAction(() => agent.respondToLocalDesktopPrompt(job.jobId, job.pendingPrompt.promptId, response));
+    }
+
+    async function runAction(fn) {
+      try {
+        await fn();
+        await refresh();
+      } catch (error) {
+        showError(error);
+      }
+    }
+
+    async function copyDiagnostics() {
+      await runAction(async () => {
+        if (!agent.getSupportBundle) {
+          throw new Error('Diagnostics bundle is not available in this desktop build');
+        }
+        const bundle = await agent.getSupportBundle(50);
+        await copyText(json(bundle));
+        const button = $('copyDiagnosticsButton');
+        const previous = button.textContent;
+        button.textContent = 'Copied';
+        window.setTimeout(() => {
+          button.textContent = previous;
+        }, 1600);
+      });
+    }
+
+    async function copyText(value) {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(value);
+        return;
+      }
+
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    }
+
+    async function runJob(tool, args, policyOverride) {
+      const policy = policyOverride || currentPolicy();
+      await runAction(async () => {
+        const job = await agent.runLocalDesktopJob({ tool, args: args || {}, policy });
+        state.selectedJobId = job.jobId;
+      });
+    }
+
+    function currentPolicy() {
+      const timeoutMs = Number($('timeoutInput').value || 120000);
+      const approvalMode = $('jobApprovalModeSelect').value || undefined;
+      const policy = {
+        timeoutMs: Number.isFinite(timeoutMs) ? timeoutMs : 120000,
+        screenshotAfterAction: $('screenshotAfterInput').checked,
+      };
+      if (approvalMode) policy.approvalMode = approvalMode;
+      return policy;
+    }
+
+    function numberValue(id, fallback) {
+      const value = Number($(id).value);
+      return Number.isFinite(value) ? value : fallback;
+    }
+
+    function compactObject(value) {
+      return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== ''));
+    }
+
+    function fileArgs(tool) {
+      const path = $('filePathInput').value.trim();
+      if (tool === 'files.search') {
+        return compactObject({
+          path,
+          query: $('fileQueryInput').value,
+          limit: numberValue('fileLimitInput', 25),
+        });
+      }
+      if (tool === 'files.write') {
+        return { path, content: $('fileContentInput').value };
+      }
+      return { path };
+    }
+
+    function appArgs(tool) {
+      if (tool === 'apps.list' || tool === 'apps.frontmost') return {};
+      return compactObject({
+        name: $('appNameInput').value.trim(),
+        path: $('appPathInput').value.trim(),
+      });
+    }
+
+    function screenArgs(extra) {
+      return compactObject({
+        width: numberValue('screenWidthInput', 1280),
+        height: numberValue('screenHeightInput', 800),
+        sourceId: $('screenSourceInput').value.trim(),
+        format: 'png',
+        ...extra,
+      });
+    }
+
+    function inputArgs(extra) {
+      return compactObject({
+        expectedFrontmostApp: $('expectedAppInput').value.trim(),
+        ...extra,
+      });
+    }
+
+    function modifiers() {
+      return $('modifiersInput').value
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+    }
+
+    function labelFor(value) {
+      return String(value).replace(/_/g, ' ');
+    }
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replace(/`/g, '&#96;');
+    }
+
+    function bindEvents() {
+      $('copyDiagnosticsButton').addEventListener('click', copyDiagnostics);
+      $('refreshButton').addEventListener('click', refresh);
+      $('refreshJobsButton').addEventListener('click', refresh);
+      $('killSwitchButton').addEventListener('click', () => runAction(() => agent.disconnect()));
+      $('connectButton').addEventListener('click', () => runAction(() => state.status.enabled ? agent.disconnect() : agent.connect()));
+      $('pairButton').addEventListener('click', () => runAction(() => agent.pairPersonalDevice({
+        ownerUserId: $('ownerInput').value.trim() || 'josh-local',
+        pairingToken: $('pairingTokenInput').value.trim() || undefined,
+      })));
+      $('revokeButton').addEventListener('click', () => runAction(() => agent.revokePersonalDevice()));
+      $('chooseFolderButton').addEventListener('click', () => runAction(() => agent.chooseAllowedFolder()));
+      $('clearFoldersButton').addEventListener('click', () => runAction(() => agent.clearAllowedFolders()));
+      $('clearAuditButton').addEventListener('click', () => runAction(() => agent.clearAudit()));
+
+      $('displayNameInput').addEventListener('change', () => runAction(() => agent.updateSettings({ displayName: $('displayNameInput').value })));
+      $('gatewayInput').addEventListener('change', () => runAction(() => agent.updateSettings({ gatewayUrl: $('gatewayInput').value })));
+      $('launchAtLoginInput').addEventListener('change', () => runAction(() => agent.updateSettings({ launchAtLogin: $('launchAtLoginInput').checked })));
+      $('allowShellInput').addEventListener('change', () => runAction(() => agent.updateSettings({ allowShell: $('allowShellInput').checked })));
+      $('fileAccessModeSelect').addEventListener('change', () => runAction(() => agent.updateSettings({ fileAccessMode: $('fileAccessModeSelect').value })));
+      $('controlModeSelect').addEventListener('change', () => runAction(() => agent.updateSettings({ controlMode: $('controlModeSelect').value })));
+      $('approvalModeSelect').addEventListener('change', () => runAction(() => agent.updateSettings({ approvalMode: $('approvalModeSelect').value })));
+
+      document.querySelectorAll('.tab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.tab').forEach((item) => item.classList.toggle('active', item === tab));
+          document.querySelectorAll('.tool-panel').forEach((panel) => panel.classList.toggle('active', panel.id === tab.dataset.tab));
+        });
+      });
+
+      document.querySelectorAll('[data-job]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const tool = button.dataset.job;
+          if (tool === 'system.storage') return runJob(tool, { path: $('storagePathInput').value || '/' });
+          if (tool === 'system.network') return runJob(tool, { includeInternal: true });
+          runJob(tool, {});
+        });
+      });
+
+      $('browserOpenButton').addEventListener('click', () => runJob('browser.open_url', compactObject({
+        url: $('browserUrlInput').value.trim(),
+        browser: $('browserNameSelect').value,
+      })));
+
+      document.querySelectorAll('[data-file-job]').forEach((button) => {
+        button.addEventListener('click', () => runJob(button.dataset.fileJob, fileArgs(button.dataset.fileJob)));
+      });
+
+      document.querySelectorAll('[data-app-job]').forEach((button) => {
+        button.addEventListener('click', () => runJob(button.dataset.appJob, appArgs(button.dataset.appJob)));
+      });
+
+      $('screenSourcesButton').addEventListener('click', () => runJob('screen.sources', { includeWindows: true }));
+      $('screenshotButton').addEventListener('click', () => runJob('screen.screenshot', screenArgs({})));
+      $('streamButton').addEventListener('click', () => runJob('screen.stream', screenArgs({
+        intervalMs: numberValue('streamIntervalInput', 2500),
+        maxFrames: 5,
+      })));
+
+      $('clickButton').addEventListener('click', () => runJob('input.click', inputArgs({
+        x: numberValue('inputXInput', 0),
+        y: numberValue('inputYInput', 0),
+      })));
+      $('typeButton').addEventListener('click', () => runJob('input.type_text', inputArgs({ text: $('typeTextInput').value })));
+      $('hotkeyButton').addEventListener('click', () => runJob('input.hotkey', inputArgs({ key: $('keyInput').value, modifiers: modifiers() })));
+      $('pressKeyButton').addEventListener('click', () => runJob('input.press_key', inputArgs({ key: $('keyInput').value, modifiers: modifiers() })));
+
+      $('clipboardReadButton').addEventListener('click', () => runJob('clipboard.read_text', {}));
+      $('clipboardWriteButton').addEventListener('click', () => runJob('clipboard.write_text', { text: $('clipboardTextInput').value }));
+
+      $('secretSaveButton').addEventListener('click', () => runJob('secrets.save', { name: $('secretNameInput').value, secret: $('secretValueInput').value }));
+      $('secretExistsButton').addEventListener('click', () => runJob('secrets.exists', { name: $('secretNameInput').value }));
+      $('secretDeleteButton').addEventListener('click', () => runJob('secrets.delete', { name: $('secretNameInput').value }));
+      $('secretFillButton').addEventListener('click', () => runJob('secrets.fill_focused_field', { name: $('secretNameInput').value }));
+
+      $('appleScriptButton').addEventListener('click', () => runJob('automation.applescript', { script: $('appleScriptInput').value }));
+      $('shellButton').addEventListener('click', () => runJob('shell.run', compactObject({
+        command: $('shellCommandInput').value.trim(),
+        args: $('shellArgsInput').value.split(' ').map((value) => value.trim()).filter(Boolean),
+        cwd: $('shellCwdInput').value.trim(),
+      })));
+    }
+
+    bindEvents();
+    refresh();
+    state.refreshTimer = window.setInterval(refresh, 1800);
+  </script>
+</body>
+</html>

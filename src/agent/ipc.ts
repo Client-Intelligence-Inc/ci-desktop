@@ -1,11 +1,22 @@
 import { dialog, ipcMain, IpcMainInvokeEvent } from 'electron';
 import { DesktopAgentService } from './service';
-import { DesktopAgentSettings, MacPermissionName, PairPersonalDeviceInput } from './types';
+import {
+  DesktopAgentSettings,
+  LocalDesktopJobInput,
+  MacPermissionName,
+  PairPersonalDeviceInput,
+  PromptResponse,
+} from './types';
 import { isMacPermissionName } from './permissions';
 
 type OriginChecker = (url?: string) => boolean;
+type AgentControlCenterOpener = () => void;
 
-export function initAgentIpc(agent: DesktopAgentService, isTrustedOrigin: OriginChecker): void {
+export function initAgentIpc(
+  agent: DesktopAgentService,
+  isTrustedOrigin: OriginChecker,
+  openAgentControlCenter?: AgentControlCenterOpener,
+): void {
   ipcMain.handle('agent:get-status', (event) => {
     assertTrustedSender(event, isTrustedOrigin);
     return agent.getStatus();
@@ -86,9 +97,46 @@ export function initAgentIpc(agent: DesktopAgentService, isTrustedOrigin: Origin
     return true;
   });
 
+  ipcMain.handle('agent:open-control-center', (event) => {
+    assertTrustedSender(event, isTrustedOrigin);
+    if (!openAgentControlCenter) {
+      throw new Error('Agent Control Center is not available');
+    }
+    openAgentControlCenter();
+    return true;
+  });
+
   ipcMain.handle('agent:run-local-tool', (event, tool: string, args: unknown) => {
     assertTrustedSender(event, isTrustedOrigin);
     return agent.runLocalTool(tool, args);
+  });
+
+  ipcMain.handle('agent:run-local-desktop-job', (event, input: LocalDesktopJobInput) => {
+    assertTrustedSender(event, isTrustedOrigin);
+    return agent.runLocalDesktopJob(input);
+  });
+
+  ipcMain.handle('agent:get-local-desktop-jobs', (event, limit?: number) => {
+    assertTrustedSender(event, isTrustedOrigin);
+    return agent.getLocalDesktopJobs(limit);
+  });
+
+  ipcMain.handle('agent:get-local-desktop-job', (event, jobId: string) => {
+    assertTrustedSender(event, isTrustedOrigin);
+    return agent.getLocalDesktopJob(jobId);
+  });
+
+  ipcMain.handle(
+    'agent:respond-to-local-desktop-prompt',
+    (event, jobId: string, promptId: string, response: PromptResponse) => {
+      assertTrustedSender(event, isTrustedOrigin);
+      return agent.respondToLocalDesktopPrompt(jobId, promptId, response);
+    },
+  );
+
+  ipcMain.handle('agent:cancel-local-desktop-job', (event, jobId: string) => {
+    assertTrustedSender(event, isTrustedOrigin);
+    return agent.cancelLocalDesktopJob(jobId);
   });
 
   ipcMain.handle('agent:get-audit', (event, limit?: number) => {
@@ -99,6 +147,11 @@ export function initAgentIpc(agent: DesktopAgentService, isTrustedOrigin: Origin
   ipcMain.handle('agent:get-audit-info', (event) => {
     assertTrustedSender(event, isTrustedOrigin);
     return agent.getAuditInfo();
+  });
+
+  ipcMain.handle('agent:get-support-bundle', (event, limit?: number) => {
+    assertTrustedSender(event, isTrustedOrigin);
+    return agent.getSupportBundle(limit);
   });
 
   ipcMain.handle('agent:clear-audit', (event) => {

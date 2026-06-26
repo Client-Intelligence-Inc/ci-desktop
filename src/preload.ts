@@ -85,9 +85,18 @@ contextBridge.exposeInMainWorld('clientIntelligenceDesktop', {
     openPermissionSettings: (permission: string) => (
       ipcRenderer.invoke('agent:open-permission-settings', permission)
     ),
+    openAgentControlCenter: () => ipcRenderer.invoke('agent:open-control-center'),
     runLocalTool: (tool: string, args: unknown) => ipcRenderer.invoke('agent:run-local-tool', tool, args),
+    runLocalDesktopJob: (input: unknown) => ipcRenderer.invoke('agent:run-local-desktop-job', input),
+    getLocalDesktopJobs: (limit?: number) => ipcRenderer.invoke('agent:get-local-desktop-jobs', limit),
+    getLocalDesktopJob: (jobId: string) => ipcRenderer.invoke('agent:get-local-desktop-job', jobId),
+    respondToLocalDesktopPrompt: (jobId: string, promptId: string, response: unknown) => (
+      ipcRenderer.invoke('agent:respond-to-local-desktop-prompt', jobId, promptId, response)
+    ),
+    cancelLocalDesktopJob: (jobId: string) => ipcRenderer.invoke('agent:cancel-local-desktop-job', jobId),
     getAudit: (limit?: number) => ipcRenderer.invoke('agent:get-audit', limit),
     getAuditInfo: () => ipcRenderer.invoke('agent:get-audit-info'),
+    getSupportBundle: (limit?: number) => ipcRenderer.invoke('agent:get-support-bundle', limit),
     clearAudit: () => ipcRenderer.invoke('agent:clear-audit'),
   },
 });

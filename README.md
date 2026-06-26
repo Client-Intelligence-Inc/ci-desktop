@@ -6,6 +6,7 @@ Native macOS desktop app for [Client Intelligence](https://clientintelligence.ai
 
 - Node.js 22.12+
 - Apple Developer ID certificate installed in Keychain (for signing/notarizing)
+- Current Apple Developer Program agreements accepted for the signing team; notarization fails with Apple HTTP 403 when a required agreement is missing or expired.
 
 ## Development
 
@@ -20,7 +21,9 @@ npm run dev
 npm run dist
 ```
 
-Produces a signed `.dmg` in `release/`.
+Produces a `.dmg` in `release/` containing a signed, stapled, and notarized Developer ID app. The build script accepts either a `CSC_NAME` without the `Developer ID Application:` prefix or an installed certificate discovered from `APPLE_TEAM_ID`; it verifies the final app is still signed by a Developer ID Application authority and passes Gatekeeper as a notarized Developer ID app.
+
+Before packaging, the build script runs `xcrun notarytool history` with the configured notarization credentials. This catches missing credentials and expired Apple Developer Program agreements before the universal app build spends time packaging. Set `CI_DESKTOP_SKIP_NOTARIZATION_PREFLIGHT=1` only for local investigation when you intentionally want to reach electron-builder's notarization step directly.
 
 ## Publish
 
@@ -42,11 +45,12 @@ Generates `build/icon.png` and `build/icon.icns` from the programmatic icon scri
 
 | Variable | Description |
 |---|---|
-| `CSC_NAME` | Developer ID Application certificate name (or use `CSC_LINK` + `CSC_KEY_PASSWORD`) |
+| `CSC_NAME` | Developer ID Application certificate name without the `Developer ID Application:` prefix (or use `CSC_LINK` + `CSC_KEY_PASSWORD`) |
 | `APPLE_KEYCHAIN_PROFILE` | Preferred notarization credential profile created with `xcrun notarytool store-credentials` |
 | `APPLE_TEAM_ID` | Apple Developer Team ID, needed for Apple ID password notarization |
 | `APPLE_ID` | Apple ID email for password-based notarization |
 | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password fallback; omit when using `APPLE_KEYCHAIN_PROFILE` |
+| `CI_DESKTOP_SKIP_NOTARIZATION_PREFLIGHT` | Optional local escape hatch. Set to `1` only to bypass the fail-fast `notarytool history` preflight. |
 
 ## Auto-Update
 
@@ -82,6 +86,8 @@ Then start the app in another terminal:
 npm run dev
 ```
 
+For Level 1 local desktop-agent readiness, open **Desktop Agent > Open Agent Control Center** from the macOS app menu, or use the menu-bar/tray item and choose **Open Agent Control Center**. This opens the repo-local Electron control surface for setup status, pairing state, permissions, file scope, control mode, approval mode, launch-at-login, audit history, active jobs, cancellation, screenshots, and representative local desktop jobs.
+
 To load the mock chat UI inside the desktop wrapper instead of production, run:
 
 ```bash
@@ -90,13 +96,15 @@ CI_DESKTOP_APP_URL=http://127.0.0.1:47391 npm run dev
 
 The desktop agent defaults to the local mock gateway at `ws://127.0.0.1:47391/desktop-agent/connect`. From the trusted web app context, setup can be driven through `window.clientIntelligenceDesktop.agent`.
 
-Trusted desktop bridge and in-app navigation origins are limited to HTTPS app hosts plus explicitly configured loopback local-development hosts. Plain HTTP production URLs, `file:` URLs, JavaScript URLs, and lookalike hosts are rejected before they can use desktop-agent IPC.
+Trusted desktop bridge and in-app navigation origins are limited to HTTPS app hosts plus explicitly configured loopback local-development hosts. Plain HTTP production URLs, arbitrary `file:` URLs, JavaScript URLs, and lookalike hosts are rejected before they can use desktop-agent IPC. The only repo-local file trusted for agent IPC is the packaged Agent Control Center HTML file; media and microphone permission checks remain limited to trusted app web origins.
 
 Gateway URL settings follow the same local-vs-production split: secure `wss://` WebSocket or `https://` HTTP polling is required for non-local gateways, while plain `ws://` or `http://` is accepted only for loopback mock gateways such as `127.0.0.1`, `localhost`, or `[::1]`.
 
-The trusted desktop bridge also exposes `window.clientIntelligenceDesktop.agent.getCapabilities()`, which returns the capability manifest used by the agent and sent in the WebSocket `hello` event. Each capability declares input and output schemas so backend/chat callers can validate tool args before delivery and render result payloads consistently. `getStatus()` includes both `activeJobIds` and structured `activeJobs` with the running tool, owner/chat/device scope, and start time. It also includes `reconnectAttempt`, `nextReconnectAt`, and `nextReconnectDelayMs` so chat can show pending retry timing when the Mac is temporarily disconnected. `getSetupChecklist()` returns a derived readiness checklist for pairing, connection, launch-at-login, file scope, screenshots, keyboard/mouse control, automation, and shell access.
+The trusted desktop bridge also exposes `window.clientIntelligenceDesktop.agent.getCapabilities()`, which returns the capability manifest used by the agent and sent in the WebSocket `hello` event. Each capability declares input and output schemas so backend/chat callers can validate tool args before delivery and render result payloads consistently. `getStatus()` includes both `activeJobIds` and structured `activeJobs` with the running tool, owner/chat/device scope, and start time. It also includes `reconnectAttempt`, `nextReconnectAt`, and `nextReconnectDelayMs` so chat can show pending retry timing when the Mac is temporarily disconnected. `getSetupChecklist()` returns a derived readiness checklist for pairing, connection, launch-at-login, file scope, screenshots, keyboard/mouse control, automation, and shell access. `openAgentControlCenter()` lets a trusted app-origin setup page bring the native Agent Control Center forward for active-job visibility, local diagnostics, permission shortcuts, and the kill switch. `getSupportBundle()` returns a redacted diagnostics bundle for support; it summarizes setup, connection, permissions, capabilities, local job counts, and sanitized audit entries without device tokens, raw secrets, file contents, screenshots, or unredacted home-folder paths.
 
 The trusted bridge `runLocalTool` method is limited to non-approval diagnostic/setup capabilities. Capabilities marked `requiresApproval: true` in the manifest are denied and audited through the bridge; they must be sent as desktop jobs so the normal approval prompt path can run.
+
+The local Agent Control Center uses `runLocalDesktopJob`, `respondToLocalDesktopPrompt`, and `cancelLocalDesktopJob` for approval-required Level 1 actions. These local desktop jobs reuse the same job runner, approval decisions, one/session/device grant logic, active-job state, screenshots, cancellation, and audit entries as gateway-delivered jobs, but job-scoped events stay local to the Electron control surface.
 
 The trusted bridge `updateSettings` method can change local preferences, but it cannot set paired `deviceId`, paired `ownerUserId`, `deviceApprovalGrants`, or add scoped `allowedFolders`. Pair/revoke owns device identity, explicit approval prompts own persistent approval grants, and folder expansion must go through `chooseAllowedFolder` so macOS presents the native folder picker.
 
@@ -203,13 +211,13 @@ The Client Intelligence backend branch adds owner-only Intelligence chat tools f
 
 Local audit history is stored as bounded JSONL metadata, redacts secret-like values from `target` and `error`, and is manageable through `getAudit`, `getAuditInfo`, and `clearAudit` on the trusted desktop bridge. `getAudit(limit)` normalizes invalid limits, defaults to 100 entries, and caps reads at 500 entries. Remote job and tool audit entries include owner/chat/target-device scope plus safe target metadata such as file path, app name, input coordinate, secret name, source ID, command name, or URL origin; they intentionally omit file contents, screenshots, clipboard text, URL query strings, and raw secrets.
 
-Scoped folder access is manageable through the trusted desktop bridge with `chooseAllowedFolder`, `removeAllowedFolder`, and `clearAllowedFolders`. The local mock chat and native desktop menu/tray expose setup controls plus shortcuts to open Full Disk Access, Accessibility, Screen Recording, and Automation settings. Permission shortcuts are limited to those four known macOS panes before any native System Settings URL is opened.
+Scoped folder access is manageable through the trusted desktop bridge with `chooseAllowedFolder`, `removeAllowedFolder`, and `clearAllowedFolders`. The Agent Control Center, local mock chat, and native desktop menu/tray expose setup controls plus shortcuts to open Full Disk Access, Accessibility, Screen Recording, and Automation settings. Permission shortcuts are limited to those four known macOS panes before any native System Settings URL is opened.
 
 The desktop app capability can inspect the current frontmost app/window with `apps.frontmost`. Bringing another app forward with `apps.activate` is approval-gated because it changes where subsequent keyboard and mouse input will land. App path arguments for `apps.open`, `apps.activate`, and `apps.quit` are limited to `.app` bundles; arbitrary local file opening must use scoped `files.open`.
 
 Input jobs can include `expectedFrontmostApp` to fail before sending keyboard or mouse events if the Mac focus has drifted. The mock chat exposes this as `click-in`, `drag-in`, `scroll-in`, `type-in`, `hotkey-in`, and `press-in` commands, plus snap variants for post-action screenshots.
 
-The macOS tray/menu-bar item shows agent connection state, active job count, and explicit remote-control active/idle state. It includes a local kill switch, reconnect action, revoke action, and Full Disk Access, Accessibility, Screen Recording, and Automation permission shortcuts. The desktop also shows native notifications when remote control transitions from idle to active and back. The mock gateway stores and renders structured active job summaries from desktop heartbeats so the phone-like chat can show the running tool and owner/chat/device scope.
+The macOS tray/menu-bar item shows agent connection state, active job count, and explicit remote-control active/idle state. It includes the Agent Control Center entry point, local kill switch, reconnect action, revoke action, and Full Disk Access, Accessibility, Screen Recording, and Automation permission shortcuts. The desktop also shows native notifications when remote control transitions from idle to active and back. The mock gateway stores and renders structured active job summaries from desktop heartbeats so the phone-like chat can show the running tool and owner/chat/device scope.
 
 Remote jobs preflight macOS Accessibility and Screen Recording permissions and return a chat-visible failure with setup guidance when those permissions are missing.
 
@@ -291,4 +299,19 @@ Run the local verification suite with:
 npm run agent:verify
 ```
 
-The verification suite includes a packaging preflight that validates the macOS privacy strings, entitlements, hardened runtime/notarization settings, and guarded Developer ID build script. It does not perform signing or publish a build.
+The verification suite includes a local desktop-job verifier and a packaging preflight that validates the local Agent Control Center packaging, macOS privacy strings, microphone/media origin handling, entitlements, hardened runtime/notarization settings, and guarded Developer ID build script. It does not perform signing or publish a build.
+
+Manual macOS Level 1 QA:
+
+1. Open the Agent Control Center from the Desktop Agent menu and from the tray/menu-bar item.
+2. Confirm pairing/device state, enabled state, launch-at-login, file scope, control mode, approval mode, shell toggle, audit info, active jobs, and kill switch are visible.
+3. Use the permission buttons and confirm only Full Disk Access, Accessibility, Screen Recording, and Automation System Settings panes open.
+4. Choose a selected folder, then run local jobs for system info, file stat/list/search/read/write/open/reveal, browser open, app open/frontmost, screenshot, and screenshot stream.
+5. Approve and deny at least one high-risk local job; confirm once/session/device choices behave as expected and audit entries are written.
+6. With Accessibility and Screen Recording granted, verify screenshot click-to-coordinate, click/type/hotkey/press with `expectedFrontmostApp`, and cancellation/kill switch behavior.
+7. With Automation enabled, verify AppleScript prompts for the target app through macOS and fails clearly if macOS denies it.
+8. With shell disabled, verify `shell.run` fails; with shell enabled and an approved scoped cwd, verify guarded `/usr/bin` or `/bin` commands only.
+9. Verify clipboard and secret jobs require approval and do not appear in audit history as plaintext.
+10. In a packaged macOS build, verify microphone usage text is present and media access works only from trusted Client Intelligence app origins.
+
+Level 2 phone control, production backend rollout, and multi-user remote access are outside this repo-local Level 1 checklist.
